@@ -1,0 +1,5 @@
+config SHIELD_KOBITOKEY_LEFT
+    def_bool $(shields_list_contains,KobitoKey_left)
+
+config SHIELD_KOBITOKEY_RIGHT
+    def_bool $(shields_list_contains,KobitoKey_right)

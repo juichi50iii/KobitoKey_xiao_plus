@@ -1,0 +1,12 @@
+description: KobitoKey right haptic input processor
+
+compatible: "kobitokey,input-processor-haptic-right"
+
+properties:
+  "#input-processor-cells":
+    type: int
+    required: true
+
+  track-remainders:
+    type: boolean
+    required: false

@@ -1,0 +1,32 @@
+description: KobitoKey axis scroll cut input processor
+
+compatible: "kobitokey,axis-scroll-cut"
+
+properties:
+  "#input-processor-cells":
+    type: int
+    required: true
+    const: 0
+    description: Number of cells in an input processor specifier.
+
+  track-remainders:
+    type: boolean
+    description: Track fractional/remainder movement across input events.
+
+  threshold:
+    type: int
+    default: 8
+    description: Movement amount required to emit one scroll step.
+
+  tan-threshold-per-mille:
+    type: int
+    default: 700
+    description: Tangent threshold in per mille. 700 is about tan(35deg).
+
+  invert-h:
+    type: boolean
+    description: Invert horizontal scroll direction.
+
+  invert-v:
+    type: boolean
+    description: Invert vertical scroll direction.
