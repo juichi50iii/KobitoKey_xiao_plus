@@ -12,4 +12,6 @@ config ZMK_POINTING
     default y
 config SPI
     default y
+config PAW3222
+    default y
 endif

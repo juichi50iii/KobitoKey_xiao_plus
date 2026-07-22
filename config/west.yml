@@ -20,8 +20,8 @@ manifest:
       import: app/west.yml
 
     # PMW3610 ドライバ（外部モジュール）
-    - name: zmk-pmw3610-driver
-      remote: efogdev
+    - name: zmk-paw3222-driver
+      remote: sekigon-gonnoc
       revision: main
       # path: modules/zmk-pmw3610-driver
 
