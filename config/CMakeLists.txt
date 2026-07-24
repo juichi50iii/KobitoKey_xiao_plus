@@ -3,5 +3,6 @@ zephyr_library_include_directories(include)
 
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HAPTIC src/kobitokey_haptic.c)
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HAPTIC src/input_processor_haptic_right.c)
-
 zephyr_library_sources(src/input_processor_axis_scroll_cut.c)
+
+zephyr_include_directories(${APPLICATION_SOURCE_DIR}/include)
