@@ -8,6 +8,8 @@ manifest:
       url-base: https://github.com/efogdev
     - name: sekigon-gonnoc
       url-base: https://github.com/sekigon-gonnoc
+    - name: juichi50iii
+      url-base: https://github.com/juichi50iii
     - name: hsgw
       url-base: https://github.com/hsgw
     - name: zettaface
@@ -23,7 +25,7 @@ manifest:
 
     # PMW3222 ドライバ（外部モジュール）
     - name: zmk-driver-paw3222
-      remote: sekigon-gonnoc
+      remote: juichi50iii
       revision: main
 
     # Sensor-rotation

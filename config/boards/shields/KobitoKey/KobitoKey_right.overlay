@@ -39,22 +39,7 @@
         reg = <0>;
         spi-max-frequency = <2000000>;
         irq-gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-    };
-};
-
-/ {
-    sensor_rotation_right: sensor-rotation-right {
-        compatible = "zmk,input-processor-sensor-rotation";
-        #input-processor-cells = <0>;
-        status = "okay";
-        rotation-angle = <25>;
-    };
-
-    sensor_rotation_left: sensor-rotation-left {
-        compatible = "zmk,input-processor-sensor-rotation";
-        status = "okay";
-        #input-processor-cells = <0>;
-        rotation-angle = <(5)>;
+        rotation-angle = <90>;
     };
 };
 
@@ -90,7 +75,6 @@
     device = <&tb_right>;
 
     input-processors =
-        <&sensor_rotation_right>,
         <&zip_temp_layer 3 5000>, /* オートマウスレイヤーの指定とトラボ操作及びマウスボタン押下後に滞留する時間 */
         <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
         <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>;
