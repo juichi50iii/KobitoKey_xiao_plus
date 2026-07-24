@@ -3,7 +3,7 @@
 #include <zephyr/device.h>
 #include <zephyr/input/input.h>
 
-#include <drivers/input_processor.h>
+#include <zmk/input_processor.h>
 
 #include "kobitokey_haptic.h"
 
