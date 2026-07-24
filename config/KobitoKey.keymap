@@ -1,5 +1,4 @@
 #include <input/processors.dtsi>
-#include <input/processors/sensor_rotation.dtsi>
 #include <behaviors/rgbled_widget.dtsi>
 #include <behaviors.dtsi>
 #include <dt-bindings/zmk/bt.h>
