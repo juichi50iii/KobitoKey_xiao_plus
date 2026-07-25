@@ -74,9 +74,10 @@
     device = <&tb_right>;
 
     input-processors =
-        <&zip_temp_layer 3 5000>; /* オートマウスレイヤーの指定とトラボ操作及びマウスボタン押下後に滞留する時間 */
+        <&zip_temp_layer 3 5000>,
+        <&zip_xy_transform INPUT_TRANSFORM_XY_INVERT>;
 
-
+        
     scroll {
         layers = <4>;
         input-processors = 
