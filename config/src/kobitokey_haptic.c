@@ -9,10 +9,7 @@
 
 #include "kobitokey_haptic.h"
 
-/*
- * XIAO BLE / nRF52840
- * P1.10 = port 1, pin 10
- */
+
 #define HAPTIC_PIN NRF_GPIO_PIN_MAP(1, 11)
 
 /*
