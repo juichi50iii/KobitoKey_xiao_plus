@@ -39,7 +39,7 @@
         spi-max-frequency = <2000000>;
         irq-gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
         rotation-angle = <25>;
-        movement-threshold = <5>;
+        movement-threshold = <10>;
     };
 };
 
