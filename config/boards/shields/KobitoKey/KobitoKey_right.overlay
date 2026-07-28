@@ -106,8 +106,7 @@
 
     input-processors =
                 <&zip_x_scaler 0 1>,
-                <&zip_y_scaler 1 15>,
-                <&axis_scroll_cut>;
+                <&zip_y_scaler 1 15>;
 };
 
 
