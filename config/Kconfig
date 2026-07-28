@@ -6,43 +6,43 @@ config KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_PULSE_MS
     int "KobitoKey haptic pulse duration in milliseconds"
-    default 50
+    default 25
     range 1 2000
     depends on KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_COOLDOWN_MS
     int "KobitoKey haptic cooldown in milliseconds"
-    default 10
+    default 50
     range 0 2000
     depends on KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_BOOT_DELAY_MS
     int "KobitoKey boot haptic delay in milliseconds"
-    default 16
+    default 1000
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_BOOT_LONG_MS
     int "KobitoKey boot haptic long pulse duration in milliseconds"
-    default 20
+    default 30
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_BOOT_GAP1_MS
     int "KobitoKey boot haptic first gap in milliseconds"
-    default 100
+    default 200
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_BOOT_SHORT_MS
     int "KobitoKey boot haptic short pulse duration in milliseconds"
-    default 10
+    default 20
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
 config KOBITOKEY_HAPTIC_BOOT_GAP2_MS
     int "KobitoKey boot haptic second gap in milliseconds"
-    default 50
+    default 100
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
