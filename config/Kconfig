@@ -30,7 +30,7 @@ config KOBITOKEY_HAPTIC_BOOT_LONG_MS
 
 config KOBITOKEY_HAPTIC_BOOT_GAP1_MS
     int "KobitoKey boot haptic first gap in milliseconds"
-    default 200
+    default 300
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
