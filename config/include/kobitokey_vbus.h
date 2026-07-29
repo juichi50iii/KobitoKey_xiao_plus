@@ -2,10 +2,38 @@
 
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
- * @brief Check whether USB VBUS is present.
+ * @brief Callback invoked when the detected VBUS state changes.
  *
- * @return true if VBUS_SENSE is HIGH.
- * @return false if VBUS_SENSE is LOW or could not be read.
+ * This callback runs from the Zephyr system workqueue, not directly
+ * from the GPIO interrupt handler.
+ *
+ * @param connected true when USB VBUS is present.
+ */
+typedef void (*kobitokey_vbus_callback_t)(bool connected);
+
+/**
+ * @brief Check whether USB VBUS is currently present.
+ *
+ * @return true if VBUS_SENSE is active.
+ * @return false if VBUS_SENSE is inactive or unavailable.
  */
 bool kobitokey_vbus_is_connected(void);
+
+/**
+ * @brief Register a callback for VBUS state changes.
+ *
+ * Only one callback is currently supported. Registering another callback
+ * replaces the previous one.
+ *
+ * @param callback Callback function, or NULL to unregister.
+ */
+void kobitokey_vbus_set_callback(kobitokey_vbus_callback_t callback);
+
+#ifdef __cplusplus
+}
+#endif

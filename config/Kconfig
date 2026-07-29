@@ -61,4 +61,10 @@ config KOBITOKEY_VBUS_LOG_BOOT_STATE
     default y
     depends on KOBITOKEY_VBUS_SENSE
 
+config KOBITOKEY_VBUS_DEBOUNCE_MS
+    int "VBUS detection debounce time in milliseconds"
+    default 20
+    range 0 1000
+    depends on KOBITOKEY_VBUS_SENSE
+    
 endmenu
