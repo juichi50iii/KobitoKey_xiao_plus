@@ -47,3 +47,18 @@ config KOBITOKEY_HAPTIC_BOOT_GAP2_MS
     depends on KOBITOKEY_HAPTIC
 
 endmenu
+
+
+
+menu "KobitoKey VBUS Sense"
+
+config KOBITOKEY_VBUS_SENSE
+    bool "KobitoKey VBUS detection support"
+    default y
+
+config KOBITOKEY_VBUS_LOG_BOOT_STATE
+    bool "Log VBUS state at boot"
+    default y
+    depends on KOBITOKEY_VBUS_SENSE
+
+endmenu

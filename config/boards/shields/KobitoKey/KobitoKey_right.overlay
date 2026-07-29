@@ -44,29 +44,22 @@
 };
 
 / {
-  /omit-if-no-ref/ zip_temp_layer: zip_temp_layer {
-    compatible = "zmk,input-processor-temp-layer";
-    #input-processor-cells = <2>;
-    require-prior-idle-ms = <350>; /* キー押下後、何msオートマウスレイヤに入らないようにするか、誤爆防止 */
-  };
-};
+    /omit-if-no-ref/ zip_temp_layer: zip_temp_layer {
+        compatible = "zmk,input-processor-temp-layer";
+        #input-processor-cells = <2>;
+        require-prior-idle-ms = <350>;
+    };
 
-/ {
     haptic_right: haptic_right {
         compatible = "kobitokey,input-processor-haptic-right";
         #input-processor-cells = <0>;
         status = "okay";
     };
-};
 
-/ {
-    input_processors {
-        axis_scroll_cut: axis_scroll_cut {
-            compatible = "kobitokey,axis-scroll-cut";
-            #input-processor-cells = <0>;
-            threshold = <0>;
-            tan-threshold-per-mille = <700>;
-        };
+    vbus_sense: vbus_sense {
+        compatible = "kobitokey,vbus-sense";
+        status = "okay";
+        gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
     };
 };
 

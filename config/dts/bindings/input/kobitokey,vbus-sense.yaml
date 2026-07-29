@@ -1,0 +1,11 @@
+description: KobitoKey VBUS sense input
+
+compatible: "kobitokey,vbus-sense"
+
+include: base.yaml
+
+properties:
+  gpios:
+    type: phandle-array
+    required: true
+    description: GPIO connected to the VBUS voltage divider
