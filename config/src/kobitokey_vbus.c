@@ -1,11 +1,10 @@
 #include <errno.h>
+#include <stdbool.h>
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/init.h>
-#include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/util.h>
 
 #include <kobitokey_vbus.h>
 
@@ -13,9 +12,7 @@ LOG_MODULE_REGISTER(kobitokey_vbus, LOG_LEVEL_INF);
 
 #define VBUS_NODE DT_NODELABEL(vbus_sense)
 
-#if !DT_NODE_HAS_STATUS(VBUS_NODE, okay)
-#error "VBUS sense node 'vbus_sense' is missing or disabled"
-#endif
+#if DT_NODE_HAS_STATUS(VBUS_NODE, okay)
 
 static const struct gpio_dt_spec vbus_gpio =
     GPIO_DT_SPEC_GET(VBUS_NODE, gpios);
@@ -29,10 +26,6 @@ bool kobitokey_vbus_is_connected(void)
         return false;
     }
 
-    /*
-     * gpio_pin_get_dt() applies GPIO_ACTIVE_HIGH/LOW,
-     * so a non-zero result means VBUS is present.
-     */
     return value != 0;
 }
 
@@ -51,14 +44,27 @@ static int kobitokey_vbus_init(void)
         return ret;
     }
 
-    if (IS_ENABLED(CONFIG_KOBITOKEY_VBUS_LOG_BOOT_STATE)) {
-        LOG_INF("VBUS %s",
-                kobitokey_vbus_is_connected()
-                    ? "detected"
-                    : "not detected");
-    }
+#if defined(CONFIG_KOBITOKEY_VBUS_LOG_BOOT_STATE)
+    LOG_INF("VBUS %s",
+            kobitokey_vbus_is_connected()
+                ? "detected"
+                : "not detected");
+#endif
 
     return 0;
 }
 
 SYS_INIT(kobitokey_vbus_init, APPLICATION, 90);
+
+#else
+
+/*
+ * This firmware half has no VBUS sense GPIO.
+ * Keep the public function available so shared code can still link.
+ */
+bool kobitokey_vbus_is_connected(void)
+{
+    return false;
+}
+
+#endif
