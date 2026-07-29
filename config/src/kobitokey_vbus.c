@@ -149,7 +149,7 @@ static int kobitokey_vbus_init(void)
     return 0;
 }
 
-SYS_INIT(kobitokey_vbus_init, APPLICATION, 90);
+SYS_INIT(kobitokey_vbus_init, APPLICATION, 80);
 
 #else
 

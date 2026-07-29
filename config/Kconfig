@@ -16,6 +16,12 @@ config KOBITOKEY_HAPTIC_COOLDOWN_MS
     range 0 2000
     depends on KOBITOKEY_HAPTIC
 
+config KOBITOKEY_HAPTIC_USB_PULSE_MS
+    int "KobitoKey USB connection haptic duration in milliseconds"
+    default 25
+    range 1 2000
+    depends on KOBITOKEY_HAPTIC && KOBITOKEY_VBUS_SENSE
+
 config KOBITOKEY_HAPTIC_BOOT_DELAY_MS
     int "KobitoKey boot haptic delay in milliseconds"
     default 500
@@ -66,5 +72,5 @@ config KOBITOKEY_VBUS_DEBOUNCE_MS
     default 20
     range 0 1000
     depends on KOBITOKEY_VBUS_SENSE
-    
+
 endmenu

@@ -1,6 +1,10 @@
-#include <zephyr/kernel.h>
-#include <zephyr/init.h>
+#include <stdbool.h>
+#include <stdint.h>
+
 #include <zephyr/devicetree.h>
+#include <zephyr/init.h>
+#include <zephyr/kernel.h>
+
 #include <hal/nrf_gpio.h>
 
 #if DT_HAS_COMPAT_STATUS_OKAY(kobitokey_haptic_local_input)
@@ -9,13 +13,17 @@
 
 #include "kobitokey_haptic.h"
 
+#if defined(CONFIG_KOBITOKEY_VBUS_SENSE)
+#include "kobitokey_vbus.h"
+#endif
+
 
 #define HAPTIC_PIN NRF_GPIO_PIN_MAP(1, 11)
 
 /*
- * Kconfig から値を読む。
+ * Kconfigから値を読む。
  * 左右で違う値にしたい場合は、
- * KobitoKey_left.conf / KobitoKey_right.conf で上書きする。
+ * KobitoKey_left.conf / KobitoKey_right.confで上書きする。
  */
 #define HAPTIC_PULSE_MS CONFIG_KOBITOKEY_HAPTIC_PULSE_MS
 #define HAPTIC_COOLDOWN_MS CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_MS
@@ -26,25 +34,61 @@
 #define HAPTIC_BOOT_SHORT_MS CONFIG_KOBITOKEY_HAPTIC_BOOT_SHORT_MS
 #define HAPTIC_BOOT_GAP2_MS CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP2_MS
 
-static int64_t last_haptic_time = 0;
+#if defined(CONFIG_KOBITOKEY_HAPTIC_USB_PULSE_MS)
+#define HAPTIC_USB_PULSE_MS CONFIG_KOBITOKEY_HAPTIC_USB_PULSE_MS
+#else
+#define HAPTIC_USB_PULSE_MS 25
+#endif
+
+
+static int64_t last_haptic_time;
 
 static struct k_work_delayable haptic_off_work;
 static struct k_work_delayable haptic_boot_work;
+static struct k_work_delayable haptic_usb_boot_work;
 
-static void haptic_on(void) {
+
+static void haptic_on(void)
+{
     nrf_gpio_pin_set(HAPTIC_PIN);
 }
 
-static void haptic_off(void) {
+
+static void haptic_off(void)
+{
     nrf_gpio_pin_clear(HAPTIC_PIN);
 }
 
-static void haptic_off_work_handler(struct k_work *work) {
+
+static void haptic_off_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
     haptic_off();
 }
 
-void kobitokey_haptic_pulse_ms(uint32_t duration_ms) {
-    int64_t now = k_uptime_get();
+
+/*
+ * クールダウンを無視して振動させる内部関数。
+ *
+ * USB接続通知やブート通知など、
+ * 必ず1回鳴らしたいシステム通知に使う。
+ */
+static void haptic_force_pulse_ms(uint32_t duration_ms)
+{
+    last_haptic_time = k_uptime_get();
+
+    haptic_on();
+
+    k_work_reschedule(
+        &haptic_off_work,
+        K_MSEC(duration_ms));
+}
+
+
+void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
+{
+    const int64_t now = k_uptime_get();
 
     if (now - last_haptic_time < HAPTIC_COOLDOWN_MS) {
         return;
@@ -53,14 +97,32 @@ void kobitokey_haptic_pulse_ms(uint32_t duration_ms) {
     last_haptic_time = now;
 
     haptic_on();
-    k_work_reschedule(&haptic_off_work, K_MSEC(duration_ms));
+
+    k_work_reschedule(
+        &haptic_off_work,
+        K_MSEC(duration_ms));
 }
 
-void kobitokey_haptic_pulse(void) {
+
+void kobitokey_haptic_pulse(void)
+{
     kobitokey_haptic_pulse_ms(HAPTIC_PULSE_MS);
 }
 
-static void haptic_boot_work_handler(struct k_work *work) {
+
+/*
+ * バッテリー起動時の通常ブート振動。
+ *
+ * 長い1回目
+ * → GAP1
+ * → 短い2回目
+ * → GAP2
+ * → 短い3回目
+ */
+static void haptic_boot_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
     haptic_on();
     k_sleep(K_MSEC(HAPTIC_BOOT_LONG_MS));
     haptic_off();
@@ -76,19 +138,60 @@ static void haptic_boot_work_handler(struct k_work *work) {
     haptic_on();
     k_sleep(K_MSEC(HAPTIC_BOOT_SHORT_MS));
     haptic_off();
+
+    last_haptic_time = k_uptime_get();
 }
+
+
+/*
+ * USB接続状態で起動したときの短い通知。
+ *
+ * 通常の3連ブート振動の代わりに、
+ * 充電開始を示す短い振動を1回だけ行う。
+ */
+static void haptic_usb_boot_work_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    haptic_force_pulse_ms(HAPTIC_USB_PULSE_MS);
+}
+
+
+#if defined(CONFIG_KOBITOKEY_VBUS_SENSE)
+
+/*
+ * 動作中のVBUS状態変化通知。
+ *
+ * connected == true:
+ *   USBが挿されたので25ms振動
+ *
+ * connected == false:
+ *   USBが抜かれたが、現在は何もしない
+ */
+static void kobitokey_haptic_vbus_changed(bool connected)
+{
+    if (!connected) {
+        return;
+    }
+
+    haptic_force_pulse_ms(HAPTIC_USB_PULSE_MS);
+}
+
+#endif
+
 
 #if DT_HAS_COMPAT_STATUS_OKAY(kobitokey_haptic_local_input)
 
 /*
- * 左手 peripheral 用。
+ * 左手peripheral用。
  *
- * input processor として挟まず、
- * input callback でRELイベントを横から見る。
+ * input processorとして挟まず、
+ * input callbackでRELイベントを横から見る。
  *
- * これにより tb_left_split の送信経路を邪魔しない。
+ * これによりtb_left_splitの送信経路を邪魔しない。
  */
-static void kobitokey_haptic_local_input_cb(struct input_event *event) {
+static void kobitokey_haptic_local_input_cb(struct input_event *event)
+{
     if (event->type != INPUT_EV_REL || event->value == 0) {
         return;
     }
@@ -105,16 +208,55 @@ INPUT_CALLBACK_DEFINE(NULL, kobitokey_haptic_local_input_cb);
 
 #endif
 
-static int haptic_init(void) {
+
+static int haptic_init(void)
+{
+    bool usb_connected = false;
+
     nrf_gpio_cfg_output(HAPTIC_PIN);
     haptic_off();
 
-    k_work_init_delayable(&haptic_off_work, haptic_off_work_handler);
+    k_work_init_delayable(
+        &haptic_off_work,
+        haptic_off_work_handler);
 
-    k_work_init_delayable(&haptic_boot_work, haptic_boot_work_handler);
-    k_work_reschedule(&haptic_boot_work, K_MSEC(HAPTIC_BOOT_DELAY_MS));
+    k_work_init_delayable(
+        &haptic_boot_work,
+        haptic_boot_work_handler);
+
+    k_work_init_delayable(
+        &haptic_usb_boot_work,
+        haptic_usb_boot_work_handler);
+
+#if defined(CONFIG_KOBITOKEY_VBUS_SENSE)
+    usb_connected = kobitokey_vbus_is_connected();
+
+    kobitokey_vbus_set_callback(
+        kobitokey_haptic_vbus_changed);
+#endif
+
+    if (usb_connected) {
+        /*
+         * USB接続状態で起動。
+         * 通常ブート振動は行わず、短い充電通知だけ行う。
+         */
+        k_work_reschedule(
+            &haptic_usb_boot_work,
+            K_MSEC(HAPTIC_BOOT_DELAY_MS));
+    } else {
+        /*
+         * バッテリー起動。
+         * 従来どおり通常のブート振動を行う。
+         */
+        k_work_reschedule(
+            &haptic_boot_work,
+            K_MSEC(HAPTIC_BOOT_DELAY_MS));
+    }
 
     return 0;
 }
 
-SYS_INIT(haptic_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+SYS_INIT(
+    haptic_init,
+    APPLICATION,
+    CONFIG_APPLICATION_INIT_PRIORITY);
