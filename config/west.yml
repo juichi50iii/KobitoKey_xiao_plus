@@ -26,7 +26,7 @@ manifest:
 
     # LED
     - name: zmk-rgbled-widget
-      remote: caksoylar
+      remote: juichi50iii
       revision: v0.3
 
 
