@@ -89,9 +89,9 @@
             <&zip_xy_swap_mapper>,
             <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
             <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
-            <&zip_x_scaler 1 8>,
-            <&zip_y_scaler 1 8>,
             <&axis_lock>,
+            <&zip_x_scaler 1 10>,
+            <&zip_y_scaler 1 10>,
             <&haptic_right>,
             <&zip_xy_to_scroll_mapper>;
     };
@@ -103,9 +103,9 @@
             <&zip_xy_swap_mapper>,
             <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
             <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
+            <&axis_lock>,
             <&zip_x_scaler 1 15>,
             <&zip_y_scaler 1 15>,
-            <&axis_lock>,
             <&haptic_right>,
             <&zip_keybind_keys>;
     };
