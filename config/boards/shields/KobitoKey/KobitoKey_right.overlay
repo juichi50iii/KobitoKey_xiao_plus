@@ -61,6 +61,16 @@
         status = "okay";
         gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
     };
+
+    axis_lock: axis_lock {
+        compatible = "zmk,input-processor-axis-lock";
+        #input-processor-cells = <0>;
+
+        activation-threshold = <8>;
+        force-lock-threshold = <20>;
+        dominance-per-mille = <1400>;
+        release-ms = <50>;
+    };
 };
 
 &tb_right_listener {
@@ -78,8 +88,9 @@
         input-processors = 
             <&zip_xy_swap_mapper>,
             <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
-            <&zip_x_scaler 0 1>,
+            <&zip_x_scaler 1 10>,
             <&zip_y_scaler 1 10>,
+            <&axis_lock>,
             <&haptic_right>,
             <&zip_xy_to_scroll_mapper>;
     };
@@ -92,7 +103,8 @@
             <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
             <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
             <&zip_x_scaler 1 15>,
-            <&zip_y_scaler 1 25>,
+            <&zip_y_scaler 1 15>,
+            <&axis_lock>,
             <&haptic_right>,
             <&zip_keybind_keys>;
     };

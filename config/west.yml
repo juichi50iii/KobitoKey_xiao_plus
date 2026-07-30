@@ -29,6 +29,10 @@ manifest:
       remote: juichi50iii
       revision: v0.3
 
+    #　Axis-lock
+    - name: zmk-axis-lock
+      rimote: juichi50iii
+      revision: main
 
   self:
     path: config
