@@ -6,8 +6,10 @@ manifest:
       url-base: https://github.com/juichi50iii
     - name: zettaface
       url-base: https://github.com/zettaface
-    - name: caksoylar  # <-- led
+    - name: caksoylar
       url-base: https://github.com/caksoylar
+    - name: amgskobo
+      url-base: https://github.com/amgskobo
 
   projects:
     - name: zmk
@@ -32,6 +34,10 @@ manifest:
     #　Axis-lock
     - name: zmk-axis-lock
       remote: juichi50iii
+      revision: main
+
+    - name: zmk-input-inertia
+      remote: amgskobo
       revision: main
 
   self:
