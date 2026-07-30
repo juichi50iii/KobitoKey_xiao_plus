@@ -69,7 +69,7 @@
         activation-threshold = <12>;
         force-lock-threshold = <20>;
         dominance-per-mille = <2500>;
-        release-ms = <50>;
+        release-ms = <200>;
     };
 };
 
