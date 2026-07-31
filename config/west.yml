@@ -34,5 +34,10 @@ manifest:
       remote: juichi50iii
       revision: main
 
+    # Inertia
+    - name: zmk-inertia
+      remote: juichi50iii
+      revision: main
+
   self:
     path: config
