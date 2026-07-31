@@ -94,10 +94,10 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        trigger-ms = <35>;
-        decay-factor-int = <85>;
-        report-interval-ms = <65>;
-        threshold-start = <2>;
+        trigger-ms = <25>;
+        decay-factor-int = <95>;
+        report-interval-ms = <25>;
+        threshold-start = <1>;
         threshold-stop = <0>;
         cancel-on-ctrl;
     };
