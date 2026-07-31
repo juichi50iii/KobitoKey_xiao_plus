@@ -98,7 +98,7 @@
         hover = <10>;
         acceleration = <4>;
         inertia = <10>;
-        brake = <2>;
+        brake = <1>;
 
         invert-horizontal;
         invert-vertical;
