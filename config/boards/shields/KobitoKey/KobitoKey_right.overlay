@@ -105,7 +105,8 @@
         acceleration-end = <12>;
         max-gain-percent = <300>;
 
-        idle-timeout-ms = <40>;
+        friction-percent = <86>;
+        inertia-timeout-ms = <300>;
 
         invert-horizontal;
         invert-vertical;
