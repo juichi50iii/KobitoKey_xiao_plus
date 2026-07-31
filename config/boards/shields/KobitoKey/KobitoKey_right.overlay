@@ -94,24 +94,11 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        report-interval-ms = <8>;
-        release-ms = <40>;
-
-        horizontal-divisor = <168>;
-        vertical-divisor = <168>;
-
-        velocity-smoothing = <70>;
-
-        acceleration-start = <1>;
-        acceleration-end = <30>;
-        max-gain-percent = <500>;
-
-        friction-percent = <98>;
-        inertia-start-speed = <2>;
-        inertia-timeout-ms = <5000>;
-
-        invert-horizontal;
-        invert-vertical;
+        divisor = 168;
+        max-gain-percent = 1000;
+        friction-percent = 98;
+        inertia-start-speed = 2;
+        inertia-timeout-ms = 5000;
     };
 };
 
