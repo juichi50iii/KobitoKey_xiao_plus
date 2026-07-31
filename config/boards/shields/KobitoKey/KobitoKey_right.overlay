@@ -104,7 +104,7 @@
 
         acceleration-start = <1>;
         acceleration-end = <20>;
-        max-gain-percent = <350>;
+        max-gain-percent = <250>;
 
         friction-percent = <96>;
         inertia-start-speed = <2>;
