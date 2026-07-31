@@ -97,7 +97,7 @@
         scroll-scale = <3>;
         hover = <5>;
         acceleration = <4>;
-        inertia = <10>;
+        inertia = <5>;
         brake = <1>;
 
         invert-horizontal;
