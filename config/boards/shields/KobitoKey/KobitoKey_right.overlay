@@ -134,8 +134,8 @@
             <&zip_x_scaler 1 15>,
             <&zip_y_scaler 1 15>,
             <&haptic_right>,
-            <&zip_xy_to_scroll_mapper>,
-            <&zip_inertia>;
+            <&zip_inertia>,
+            <&zip_xy_to_scroll_mapper>;
     };
 
     
