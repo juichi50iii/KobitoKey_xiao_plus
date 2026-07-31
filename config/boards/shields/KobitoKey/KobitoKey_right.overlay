@@ -94,7 +94,7 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        scroll-scale = <3>;
+        scroll-scale = <8>;
         hover = <5>;
         acceleration = <4>;
         inertia = <5>;
