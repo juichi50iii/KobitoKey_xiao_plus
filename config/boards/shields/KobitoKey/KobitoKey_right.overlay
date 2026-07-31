@@ -91,6 +91,7 @@
 
     zip_scroll_nurunuru: zip_scroll_nurunuru {
         compatible = "zmk,input-processor-scroll-nurunuru";
+        #input-processor-cells = <0>;
         status = "okay";
 
         scroll-scale = <7>;
