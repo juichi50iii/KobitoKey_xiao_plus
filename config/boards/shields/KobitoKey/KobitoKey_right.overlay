@@ -83,9 +83,9 @@
         compatible = "zmk,input-processor-axis-lock";
         #input-processor-cells = <0>;
 
-        activation-threshold = <2>;
+        activation-threshold = <3>;
         force-lock-threshold = <15>;
-        dominance-per-mille = <2500>;
+        dominance-per-mille = <3000>;
         release-ms = <90>;
     };
 
@@ -94,9 +94,9 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        scroll-scale = <4>;
+        scroll-scale = <3>;
         hover = <10>;
-        acceleration = <8>;
+        acceleration = <7>;
         inertia = <7>;
         brake = <4>;
 
