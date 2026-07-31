@@ -83,10 +83,10 @@
         compatible = "zmk,input-processor-axis-lock";
         #input-processor-cells = <0>;
 
-        activation-threshold = <3>;
-        force-lock-threshold = <15>;
+        activation-threshold = <1>;
+        force-lock-threshold = <20>;
         dominance-per-mille = <3000>;
-        release-ms = <90>;
+        release-ms = <75>;
     };
 
     zip_scroll_nurunuru: zip_scroll_nurunuru {
