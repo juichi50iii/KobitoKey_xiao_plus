@@ -106,6 +106,7 @@
         max-gain-percent = <300>;
 
         friction-percent = <86>;
+        inertia-start-speed = <6>;
         inertia-timeout-ms = <300>;
 
         invert-horizontal;
