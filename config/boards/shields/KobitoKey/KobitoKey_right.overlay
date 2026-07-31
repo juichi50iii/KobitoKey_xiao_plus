@@ -99,7 +99,7 @@
         horizontal-divisor = <1>;
         vertical-divisor = <1>;
 
-        velocity-smoothing = <20>;
+        velocity-smoothing = <100>;
 
         acceleration-start = <3>;
         acceleration-end = <30>;
