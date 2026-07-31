@@ -102,8 +102,8 @@
 
         velocity-smoothing = <70>;
 
-        acceleration-start = <5>;
-        acceleration-end = <20>;
+        acceleration-start = <2>;
+        acceleration-end = <10>;
         max-gain-percent = <1000>;
 
         friction-percent = <90>;
