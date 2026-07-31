@@ -119,14 +119,9 @@
     device = <&tb_right>;
 
     input-processors =
-        <&zip_temp_layer 3 5000>;
-
-    pointer {
-        layers = <0 1 2 3>;
-        input-processors =
-            <&zip_xy_swap_mapper>,
-            <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>;
-    };
+        <&zip_temp_layer 3 5000>,
+        <&zip_xy_swap_mapper>,
+        <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>;
 
 
     scroll {
