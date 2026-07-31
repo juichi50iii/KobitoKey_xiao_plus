@@ -88,6 +88,19 @@
         // max_threshold = <200>
         // max_pending_activations = <10>
     };
+
+    zip_inertia: zip_inertia {
+        compatible = "zmk,input-processor-inertia";
+        #input-processor-cells = <0>;
+        status = "okay";
+
+        trigger-ms = <35>;
+        decay-factor-int = <85>;
+        report-interval-ms = <65>;
+        threshold-start = <2>;
+        threshold-stop = <0>;
+        cancel-on-ctrl;
+    };
 };
 
 &tb_right_listener {
@@ -150,14 +163,4 @@
         33
         39
     >;
-};
-
-&zip_inertia {
-    trigger-ms = <35>;
-    decay-factor-int = <85>;
-    report-interval-ms = <65>;
-    threshold-start = <2>;
-    threshold-stop = <0>;
-
-    cancel-on-ctrl;
 };
