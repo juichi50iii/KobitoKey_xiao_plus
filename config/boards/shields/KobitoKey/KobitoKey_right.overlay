@@ -89,29 +89,18 @@
         // max_pending_activations = <10>
     };
 
-    zip_inertia: zip_inertia {
-    compatible = "zmk,input-processor-inertia";
-    #input-processor-cells = <0>;
-    status = "okay";
+    zip_scroll_nurunuru: zip_scroll_nurunuru {
+        compatible = "zmk,input-processor-scroll-nurunuru";
+        #input-processor-cells = <0>;
+        status = "okay";
 
-    track-remainders;
+        report-interval-ms = <8>;
 
-    velocity-smoothing-int = <70>;
+        horizontal-divisor = <15>;
+        vertical-divisor = <15>;
 
-    acceleration-start = <18>;
-    acceleration-end = <110>;
-    maximum-gain-int = <300>;
-
-    velocity-reset-ms = <180>;
-
-    trigger-ms = <30>;
-    decay-factor-int = <82>;
-    report-interval-ms = <16>;
-    threshold-start = <1>;
-    threshold-stop = <1>;
-
-    cancel-on-ctrl;
-};
+        idle-timeout-ms = <40>;
+    };
 };
 
 &tb_right_listener {
@@ -127,15 +116,9 @@
     scroll {
         layers = <4>;
         input-processors = 
-            <&zip_xy_swap_mapper>,
-            <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
-            <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
             <&axis_lock>,
-            <&zip_x_scaler 1 15>,
-            <&zip_y_scaler 1 15>,
             <&haptic_right>,
-            <&zip_inertia>,
-            <&zip_xy_to_scroll_mapper>;
+            <&zip_scroll_nurunuru>;
     };
 
     

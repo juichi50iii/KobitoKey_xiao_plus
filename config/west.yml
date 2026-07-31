@@ -34,8 +34,8 @@ manifest:
       remote: juichi50iii
       revision: main
 
-    # Inertia
-    - name: zmk-inertia
+    # nurunuru
+    - name: zmk-scroll-nurunuru
       remote: juichi50iii
       revision: main
 
