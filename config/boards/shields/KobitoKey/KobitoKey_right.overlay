@@ -85,7 +85,7 @@
 
         activation-threshold = <2>;
         force-lock-threshold = <15>;
-        dominance-per-mille = <1800>;
+        dominance-per-mille = <2500>;
         release-ms = <90>;
     };
 
@@ -98,6 +98,9 @@
         acceleration = <10>;
         inertia = <8>;
         brake = <3>;
+
+        invert-horizontal;
+        invert-vertical;
     };
 };
 
