@@ -83,10 +83,10 @@
         compatible = "zmk,input-processor-axis-lock";
         #input-processor-cells = <0>;
 
-        activation-threshold = <3>;
-        force-lock-threshold = <20>;
-        dominance-per-mille = <1500>;
-        release-ms = <75>;
+        activation-threshold = <2>;
+        force-lock-threshold = <15>;
+        dominance-per-mille = <1800>;
+        release-ms = <90>;
     };
 
     zip_scroll_nurunuru: zip_scroll_nurunuru {
@@ -95,20 +95,20 @@
         status = "okay";
 
         report-interval-ms = <8>;
-        release-ms = <24>;
+        release-ms = <40>;
 
-        horizontal-divisor = <20>;
-        vertical-divisor = <20>;
+        horizontal-divisor = <24>;
+        vertical-divisor = <24>;
 
-        velocity-smoothing = <20>;
+        velocity-smoothing = <70>;
 
         acceleration-start = <1>;
-        acceleration-end = <50>;
-        max-gain-percent = <500>;
+        acceleration-end = <20>;
+        max-gain-percent = <350>;
 
-        friction-percent = <90>;
-        inertia-start-speed = <5>;
-        inertia-timeout-ms = <500>;
+        friction-percent = <96>;
+        inertia-start-speed = <2>;
+        inertia-timeout-ms = <900>;
 
         invert-horizontal;
         invert-vertical;
