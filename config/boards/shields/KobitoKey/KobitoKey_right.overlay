@@ -97,14 +97,14 @@
         report-interval-ms = <8>;
         release-ms = <24>;
 
-        horizontal-divisor = <10>;
-        vertical-divisor = <10>;
+        horizontal-divisor = <20>;
+        vertical-divisor = <20>;
 
         velocity-smoothing = <20>;
 
-        acceleration-start = <2>;
-        acceleration-end = <15>;
-        max-gain-percent = <200>;
+        acceleration-start = <1>;
+        acceleration-end = <50>;
+        max-gain-percent = <500>;
 
         friction-percent = <90>;
         inertia-start-speed = <5>;
