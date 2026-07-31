@@ -90,16 +90,29 @@
     };
 
     zip_inertia: zip_inertia {
-        compatible = "zmk,input-processor-inertia";
-        #input-processor-cells = <0>;
-        status = "okay";
+    compatible = "zmk,input-processor-inertia";
+    #input-processor-cells = <0>;
+    status = "okay";
 
-        trigger-ms = <25>;
-        decay-factor-int = <95>;
-        report-interval-ms = <25>;
-        threshold-start = <1>;
-        threshold-stop = <0>;
-        cancel-on-ctrl;
+    /* 操作中の滑らかさ */
+    velocity-smoothing-int = <70>;
+
+    /* 速度依存加速 */
+    acceleration-start = <18>;
+    acceleration-end = <110>;
+    maximum-gain-int = <300>;
+
+    /* 一度止めた後は低速状態から再開 */
+    velocity-reset-ms = <180>;
+
+    /* 離した後の短い余韻 */
+    trigger-ms = <30>;
+    decay-factor-int = <82>;
+    report-interval-ms = <16>;
+    threshold-start = <1>;
+    threshold-stop = <1>;
+
+    cancel-on-ctrl;
     };
 };
 
