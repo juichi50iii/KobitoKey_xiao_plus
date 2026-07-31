@@ -93,11 +93,22 @@
         compatible = "zmk,input-processor-scroll-nurunuru";
         #input-processor-cells = <0>;
         status = "okay";
+
         report-interval-ms = <8>;
+
         horizontal-divisor = <15>;
         vertical-divisor = <15>;
+
         velocity-smoothing = <40>;
+
+        acceleration-start = <2>;
+        acceleration-end = <12>;
+        max-gain-percent = <300>;
+
         idle-timeout-ms = <40>;
+
+        invert-horizontal;
+        invert-vertical;
     };
 };
 
