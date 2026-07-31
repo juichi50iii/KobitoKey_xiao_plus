@@ -94,8 +94,8 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        hover = <5>;
-        acceleration = <4>;
+        hover = <8>;
+        acceleration = <3>;
         inertia = <5>;
 
         invert-horizontal;
