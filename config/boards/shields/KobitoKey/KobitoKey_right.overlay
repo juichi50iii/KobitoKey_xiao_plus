@@ -62,16 +62,6 @@
         gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
     };
 
-    axis_lock: axis_lock {
-        compatible = "zmk,input-processor-axis-lock";
-        #input-processor-cells = <0>;
-
-        activation-threshold = <12>;
-        force-lock-threshold = <20>;
-        dominance-per-mille = <2500>;
-        release-ms = <75>;
-    };
-
     zip_keybind_keys: zip_keybind_keys {
         compatible = "zmk,input-processor-keybind";
         #input-processor-cells = <0>;
@@ -89,6 +79,16 @@
         // max_pending_activations = <10>
     };
 
+    axis_lock: axis_lock {
+        compatible = "zmk,input-processor-axis-lock";
+        #input-processor-cells = <0>;
+
+        activation-threshold = <6>;
+        force-lock-threshold = <20>;
+        dominance-per-mille = <2500>;
+        release-ms = <75>;
+    };
+
     zip_scroll_nurunuru: zip_scroll_nurunuru {
         compatible = "zmk,input-processor-scroll-nurunuru";
         #input-processor-cells = <0>;
@@ -96,8 +96,8 @@
 
         report-interval-ms = <8>;
 
-        horizontal-divisor = <1>;
-        vertical-divisor = <1>;
+        horizontal-divisor = <3>;
+        vertical-divisor = <3>;
 
         velocity-smoothing = <60>;
 
