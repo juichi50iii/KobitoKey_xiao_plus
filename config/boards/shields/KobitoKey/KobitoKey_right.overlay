@@ -83,7 +83,7 @@
         compatible = "zmk,input-processor-axis-lock";
         #input-processor-cells = <0>;
 
-        activation-threshold = <6>;
+        activation-threshold = <3>;
         force-lock-threshold = <20>;
         dominance-per-mille = <2500>;
         release-ms = <75>;
