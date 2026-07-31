@@ -94,11 +94,10 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        divisor = 168;
-        max-gain-percent = 1000;
-        friction-percent = 98;
-        inertia-start-speed = 2;
-        inertia-timeout-ms = 5000;
+        scroll-scale = <7>;
+        acceleration = <10>;
+        inertia = <8>;
+        brake = <3>;
     };
 };
 
