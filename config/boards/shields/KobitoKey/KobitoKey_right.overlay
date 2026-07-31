@@ -99,11 +99,11 @@
         horizontal-divisor = <3>;
         vertical-divisor = <3>;
 
-        velocity-smoothing = <60>;
+        velocity-smoothing = <20>;
 
-        acceleration-start = <15>;
-        acceleration-end = <20>;
-        max-gain-percent = <200>;
+        acceleration-start = <3>;
+        acceleration-end = <30>;
+        max-gain-percent = <120>;
 
         friction-percent = <86>;
         inertia-start-speed = <10>;
