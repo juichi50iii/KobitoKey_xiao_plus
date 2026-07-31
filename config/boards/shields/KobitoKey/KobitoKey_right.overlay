@@ -97,8 +97,8 @@
         report-interval-ms = <8>;
         release-ms = <40>;
 
-        horizontal-divisor = <72>;
-        vertical-divisor = <72>;
+        horizontal-divisor = <120>;
+        vertical-divisor = <120>;
 
         velocity-smoothing = <70>;
 
