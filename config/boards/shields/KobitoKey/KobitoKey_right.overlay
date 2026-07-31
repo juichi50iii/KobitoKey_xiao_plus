@@ -100,15 +100,15 @@
         horizontal-divisor = <10>;
         vertical-divisor = <10>;
 
-        velocity-smoothing = <100>;
+        velocity-smoothing = <20>;
 
-        acceleration-start = <3>;
-        acceleration-end = <30>;
+        acceleration-start = <2>;
+        acceleration-end = <15>;
         max-gain-percent = <200>;
 
-        friction-percent = <80>;
-        inertia-start-speed = <10>;
-        inertia-timeout-ms = <300>;
+        friction-percent = <90>;
+        inertia-start-speed = <5>;
+        inertia-timeout-ms = <500>;
 
         invert-horizontal;
         invert-vertical;
