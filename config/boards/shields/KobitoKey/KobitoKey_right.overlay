@@ -95,6 +95,7 @@
         status = "okay";
 
         scroll-scale = <7>;
+        hover = <4>;
         acceleration = <9>;
         inertia = <7>;
         brake = <4>;
