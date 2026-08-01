@@ -93,7 +93,12 @@
         compatible = "zmk,input-processor-scroll-nurunuru";
         #input-processor-cells = <0>;
         status = "okay";
-        base-gain = <700>;
+        /*
+         * ZMK smooth scrolling exposes wheel units at 1/16 resolution.
+         * Boost only the low-speed end so sub-notch reports are emitted
+         * frequently enough to avoid visible stepping.
+         */
+        base-gain = <6000>;
         max-gain = <4500>;
         acceleration-start = <40>;
         acceleration-end = <600>;
