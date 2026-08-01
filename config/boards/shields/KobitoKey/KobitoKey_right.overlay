@@ -93,13 +93,14 @@
         compatible = "zmk,input-processor-scroll-nurunuru";
         #input-processor-cells = <0>;
         status = "okay";
-
-        hover = <5>;
-        acceleration = <3>;
-        inertia = <5>;
-
-        invert-horizontal;
-        invert-vertical;
+        base-gain = <700>;
+        max-gain = <4500>;
+        acceleration-start = <40>;
+        acceleration-end = <600>;
+        response = <30>;
+        drag-per-mille = <940>;
+        stop-threshold = <150>;
+};
     };
 };
 
@@ -116,6 +117,9 @@
     scroll {
         layers = <4>;
         input-processors =
+            <&zip_xy_swap_mapper>,
+            <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
+            <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
             <&axis_lock>,
             <&haptic_right>,
             <&zip_scroll_nurunuru>;
