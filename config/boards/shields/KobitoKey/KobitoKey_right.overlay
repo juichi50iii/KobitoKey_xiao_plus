@@ -94,9 +94,12 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        /* PMW3610-style sigmoid acceleration with standard HID wheel output. */
+        /* Linear camera speed with 8 ms temporal interpolation. */
         scroll-tick = <20>;
         sensitivity = <2>;
+        response-ms = <48>;
+        bridge-ms = <56>;
+        release-ms = <160>;
     };
 };
 
