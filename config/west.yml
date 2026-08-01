@@ -37,7 +37,7 @@ manifest:
     # nurunuru
     - name: zmk-scroll-nurunuru
       remote: juichi50iii
-      revision: 9d5757ed9025ebb75da3751ab3cbeb207fddfda1
+      revision: 2d47d017ac3935b58e32bca57c4665f5ba0e8f69
 
   self:
     path: config

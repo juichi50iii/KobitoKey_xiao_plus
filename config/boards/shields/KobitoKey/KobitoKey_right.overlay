@@ -94,14 +94,14 @@
         #input-processor-cells = <0>;
         status = "okay";
         /* High-frame-rate slow-motion curve, entirely in firmware. */
-        base-gain = <200>;
-        max-gain = <900>;
-        acceleration-start = <200>;
-        acceleration-end = <2200>;
-        target-response = <20>;
+        base-gain = <120>;
+        max-gain = <350>;
+        acceleration-start = <400>;
+        acceleration-end = <4500>;
+        target-response = <15>;
         velocity-response = <25>;
         distance-divisor = <2>;
-        max-velocity = <3>;
+        max-velocity = <1>;
         coast-ms = <520>;
         release-ms = <80>;
     };
