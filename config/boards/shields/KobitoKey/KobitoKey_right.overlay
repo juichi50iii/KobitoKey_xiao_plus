@@ -93,15 +93,17 @@
         compatible = "zmk,input-processor-scroll-nurunuru";
         #input-processor-cells = <0>;
         status = "okay";
-        /* Heavy display: very small distance with a slow velocity response. */
-        base-gain = <120>;
-        max-gain = <300>;
-        acceleration-start = <800>;
-        acceleration-end = <3000>;
-        response = <6>;
-        input-filter-response = <4>;
+        /* High-frame-rate slow-motion curve, entirely in firmware. */
+        base-gain = <200>;
+        max-gain = <500>;
+        acceleration-start = <600>;
+        acceleration-end = <2200>;
+        target-response = <30>;
         distance-divisor = <2>;
         max-velocity = <1>;
+        ramp-ms = <280>;
+        coast-ms = <520>;
+        release-ms = <80>;
     };
 };
 
