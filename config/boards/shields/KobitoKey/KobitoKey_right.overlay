@@ -114,7 +114,7 @@
         stage-hysteresis-per-mille = <800>;
         low-stage-max-gap-ms = <88 72 48>;
         /* A/B stop cleanly; each faster stage earns one more breath. */
-        stage-coast-ms = <0 0 240 420 600 780 960>;
+        stage-coast-ms = <0 0 240 420 600 1800 3200>;
     };
 };
 
