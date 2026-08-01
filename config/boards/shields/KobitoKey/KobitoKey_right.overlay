@@ -93,25 +93,10 @@
         compatible = "zmk,input-processor-scroll-nurunuru";
         #input-processor-cells = <0>;
         status = "okay";
-        /* High-frame-rate slow-motion curve, entirely in firmware. */
-        base-gain = <180>;
-        max-gain = <350>;
-        acceleration-start = <400>;
-        acceleration-end = <4500>;
-        target-response = <25>;
-        velocity-response = <25>;
-        low-speed-response = <70>;
-        distance-divisor = <2>;
-        max-velocity-per-mille = <650>;
-        coast-velocity-per-mille = <220>;
-        coast-ms = <680>;
-        release-ms = <80>;
 
-        /* A-G are stable camera-speed decks sampled from an S curve. */
-        stage-thresholds = <180 300 500 800 1300 2100>;
-        stage-velocities-per-mille = <60 90 140 325 500 600 650>;
-        stage-hysteresis-per-mille = <800>;
-        low-stage-max-gap-ms = <104 80 48>;
+        /* Match the PMW3610 sigmoid demo's initial tuning. */
+        scroll-tick = <20>;
+        sensitivity = <2>;
     };
 };
 
