@@ -111,7 +111,7 @@
         stage-thresholds = <180 300 500 800 1300 2100>;
         stage-velocities-per-mille = <60 90 140 325 500 600 650>;
         stage-hysteresis-per-mille = <800>;
-        low-stage-max-gap-ms = <88 68 44>;
+        low-stage-max-gap-ms = <96 76 48>;
     };
 };
 
