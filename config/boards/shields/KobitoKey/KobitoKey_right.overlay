@@ -100,7 +100,6 @@
         response = <30>;
         drag-per-mille = <940>;
         stop-threshold = <150>;
-};
     };
 };
 
