@@ -106,6 +106,11 @@
         coast-velocity-per-mille = <250>;
         coast-ms = <520>;
         release-ms = <80>;
+
+        /* A-G are stable camera-speed decks sampled from an S curve. */
+        stage-thresholds = <180 300 500 800 1300 2100>;
+        stage-velocities-per-mille = <100 120 180 325 500 600 650>;
+        stage-hysteresis-per-mille = <800>;
     };
 };
 
