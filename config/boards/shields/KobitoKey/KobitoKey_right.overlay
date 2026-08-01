@@ -94,9 +94,8 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        /* Match the PMW3610 sigmoid demo's initial tuning. */
-        scroll-tick = <20>;
-        sensitivity = <2>;
+        /* Two virtual fingers move together, producing a native touchpad gesture. */
+        touch-scale = <12>;
     };
 };
 
