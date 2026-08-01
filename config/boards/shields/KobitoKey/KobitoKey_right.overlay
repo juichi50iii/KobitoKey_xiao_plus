@@ -95,15 +95,13 @@
         status = "okay";
         /* High-frame-rate slow-motion curve, entirely in firmware. */
         base-gain = <200>;
-        max-gain = <400>;
-        acceleration-start = <600>;
+        max-gain = <900>;
+        acceleration-start = <200>;
         acceleration-end = <2200>;
-        target-response = <30>;
+        target-response = <20>;
+        velocity-response = <25>;
         distance-divisor = <2>;
-        max-velocity = <1>;
-        rolling-ramp-ms = <1600>;
-        flick-ramp-ms = <280>;
-        flick-speed-threshold = <1200>;
+        max-velocity = <3>;
         coast-ms = <520>;
         release-ms = <80>;
     };
