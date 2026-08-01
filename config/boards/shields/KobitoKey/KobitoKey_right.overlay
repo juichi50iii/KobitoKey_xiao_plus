@@ -116,7 +116,6 @@
     scroll {
         layers = <4>;
         input-processors =
-            <&zip_xy_swap_mapper>,
             <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
             <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
             <&axis_lock>,
