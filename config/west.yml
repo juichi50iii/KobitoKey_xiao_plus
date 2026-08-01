@@ -12,7 +12,7 @@ manifest:
   projects:
     - name: zmk
       remote: juichi50iii
-      revision: 26d430dd7f683461b2c2f1fb17ec4c711d9770c3
+      revision: aaece84cacefe158663e02882ddb028038fc0ef6
       import: app/west.yml
 
     - name: zmk-driver-paw3222
