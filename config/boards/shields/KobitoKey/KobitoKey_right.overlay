@@ -98,12 +98,12 @@
          * Boost only the low-speed end so sub-notch reports are emitted
          * frequently enough to avoid visible stepping.
          */
-        base-gain = <1800>;
-        max-gain = <2600>;
-        acceleration-start = <220>;
-        acceleration-end = <900>;
-        input-filter-response = <25>;
-        response = <18>;
+        base-gain = <1400>;
+        max-gain = <1900>;
+        acceleration-start = <350>;
+        acceleration-end = <1200>;
+        input-filter-response = <12>;
+        response = <10>;
         drag-per-mille = <940>;
         stop-threshold = <150>;
         input-gap-hold-ms = <96>;
