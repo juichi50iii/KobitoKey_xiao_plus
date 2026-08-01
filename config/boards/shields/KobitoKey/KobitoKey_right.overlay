@@ -100,8 +100,9 @@
          */
         base-gain = <1800>;
         max-gain = <2600>;
-        acceleration-start = <40>;
+        acceleration-start = <220>;
         acceleration-end = <900>;
+        input-filter-response = <25>;
         response = <18>;
         drag-per-mille = <940>;
         stop-threshold = <150>;
