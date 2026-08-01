@@ -94,12 +94,25 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        /* Linear camera speed with 8 ms temporal interpolation. */
-        scroll-tick = <20>;
-        sensitivity = <2>;
-        response-ms = <48>;
-        bridge-ms = <56>;
-        release-ms = <160>;
+        /* High-frame-rate slow-motion curve, entirely in firmware. */
+        base-gain = <180>;
+        max-gain = <350>;
+        acceleration-start = <400>;
+        acceleration-end = <4500>;
+        target-response = <25>;
+        velocity-response = <25>;
+        low-speed-response = <70>;
+        distance-divisor = <2>;
+        max-velocity-per-mille = <650>;
+        coast-velocity-per-mille = <250>;
+        coast-ms = <520>;
+        release-ms = <80>;
+
+        /* A-G are stable camera-speed decks sampled from an S curve. */
+        stage-thresholds = <180 300 500 800 1300 2100>;
+        stage-velocities-per-mille = <60 90 140 325 500 600 650>;
+        stage-hysteresis-per-mille = <800>;
+        low-stage-max-gap-ms = <88 72 48>;
     };
 };
 
