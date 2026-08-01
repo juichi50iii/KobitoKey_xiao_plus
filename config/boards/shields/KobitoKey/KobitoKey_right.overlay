@@ -104,8 +104,8 @@
         low-speed-response = <70>;
         distance-divisor = <2>;
         max-velocity-per-mille = <650>;
-        coast-velocity-per-mille = <650>;
-        coast-ms = <920>;
+        coast-velocity-per-mille = <500>;
+        launch-ms = <96>;
         release-ms = <112>;
 
         /* A-G are stable camera-speed decks sampled from an S curve. */
@@ -113,6 +113,8 @@
         stage-velocities-per-mille = <35 60 140 325 500 600 650>;
         stage-hysteresis-per-mille = <800>;
         low-stage-max-gap-ms = <88 72 48>;
+        /* A/B stop cleanly; each faster stage earns one more breath. */
+        stage-coast-ms = <0 0 240 420 600 780 960>;
     };
 };
 
