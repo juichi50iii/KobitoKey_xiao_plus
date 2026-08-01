@@ -94,8 +94,9 @@
         #input-processor-cells = <0>;
         status = "okay";
 
-        /* Two virtual fingers move together, producing a native touchpad gesture. */
-        touch-scale = <12>;
+        /* PMW3610-style sigmoid acceleration with standard HID wheel output. */
+        scroll-tick = <20>;
+        sensitivity = <2>;
     };
 };
 

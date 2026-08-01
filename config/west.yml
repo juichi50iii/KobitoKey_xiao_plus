@@ -11,8 +11,8 @@ manifest:
 
   projects:
     - name: zmk
-      remote: juichi50iii
-      revision: aaece84cacefe158663e02882ddb028038fc0ef6
+      remote: zmkfirmware
+      revision: v0.3
       import: app/west.yml
 
     - name: zmk-driver-paw3222
@@ -37,7 +37,7 @@ manifest:
     # nurunuru
     - name: zmk-scroll-nurunuru
       remote: juichi50iii
-      revision: 86751bfb3841e861f7a6489b024cddd6a2f0bc7f
+      revision: c889764d15f4bdec6aa33a5812d9a5c615ec8d3a
 
   self:
     path: config
