@@ -1,0 +1,9 @@
+zephyr_library()
+zephyr_library_include_directories(include)
+
+zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HAPTIC src/kobitokey_haptic.c)
+zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HAPTIC src/input_processor_haptic_right.c)
+zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_VBUS_SENSE src/kobitokey_vbus.c)
+zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_VBUS_SENSE src/kobitokey_rgbled_hook.c)
+
+zephyr_include_directories(${APPLICATION_SOURCE_DIR}/include)

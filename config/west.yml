@@ -1,0 +1,43 @@
+manifest:
+  remotes:
+    - name: zmkfirmware
+      url-base: https://github.com/zmkfirmware
+    - name: juichi50iii
+      url-base: https://github.com/juichi50iii
+    - name: zettaface
+      url-base: https://github.com/zettaface
+    - name: caksoylar
+      url-base: https://github.com/caksoylar
+
+  projects:
+    - name: zmk
+      remote: zmkfirmware
+      revision: v0.3
+      import: app/west.yml
+
+    - name: zmk-driver-paw3222
+      remote: juichi50iii
+      revision: main
+
+    # Arrow-torabo
+    - name: zmk-input-processor-keybind
+      remote: zettaface
+      revision: main
+
+    # LED
+    - name: zmk-rgbled-widget
+      remote: juichi50iii
+      revision: v0.3
+
+    #　Axis-lock
+    - name: zmk-axis-lock
+      remote: juichi50iii
+      revision: main
+
+    # nurunuru
+    - name: zmk-scroll-nurunuru
+      remote: juichi50iii
+      revision: 8940b3af0547811c9d30682700dbf3cb14a5b762
+
+  self:
+    path: config

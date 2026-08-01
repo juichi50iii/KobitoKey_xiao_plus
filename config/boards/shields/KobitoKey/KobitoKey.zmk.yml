@@ -1,0 +1,8 @@
+file_format: "1"
+id: KobitoKey
+name: KobitoKey
+type: shield
+url: https://github.com/juichi50iii/zmk-config-Kobitokey
+requires: [seeeduino_xiao_ble]
+features:
+  - keys

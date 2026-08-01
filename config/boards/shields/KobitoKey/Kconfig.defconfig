@@ -1,0 +1,17 @@
+# 右（central）
+if SHIELD_KOBITOKEY_RIGHT
+config ZMK_KEYBOARD_NAME
+    default "KobitoKey"
+endif
+
+# 左右共通
+if SHIELD_KOBITOKEY_LEFT || SHIELD_KOBITOKEY_RIGHT
+config ZMK_SPLIT
+    default y
+config ZMK_POINTING
+    default y
+config SPI
+    default y
+config PAW3222
+    default y
+endif
