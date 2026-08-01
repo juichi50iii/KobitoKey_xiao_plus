@@ -99,9 +99,9 @@
          * frequently enough to avoid visible stepping.
          */
         base-gain = <1800>;
-        max-gain = <4500>;
+        max-gain = <2600>;
         acceleration-start = <40>;
-        acceleration-end = <600>;
+        acceleration-end = <900>;
         response = <18>;
         drag-per-mille = <940>;
         stop-threshold = <150>;
