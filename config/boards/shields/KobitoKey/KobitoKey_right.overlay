@@ -39,7 +39,7 @@
         spi-max-frequency = <2000000>;
         irq-gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
         rotation-angle = <25>;
-        movement-threshold = <3>;
+        movement-threshold = <1>;
     };
 };
 
@@ -98,14 +98,14 @@
          * Boost only the low-speed end so sub-notch reports are emitted
          * frequently enough to avoid visible stepping.
          */
-        base-gain = <2500>;
+        base-gain = <1800>;
         max-gain = <4500>;
         acceleration-start = <40>;
         acceleration-end = <600>;
-        response = <30>;
+        response = <18>;
         drag-per-mille = <940>;
         stop-threshold = <150>;
-        input-gap-hold-ms = <48>;
+        input-gap-hold-ms = <96>;
     };
 };
 
