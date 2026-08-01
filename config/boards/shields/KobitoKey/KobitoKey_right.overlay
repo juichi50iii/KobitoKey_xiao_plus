@@ -103,8 +103,8 @@
         low-speed-response = <70>;
         distance-divisor = <2>;
         max-velocity-per-mille = <650>;
-        coast-velocity-per-mille = <250>;
-        coast-ms = <520>;
+        coast-velocity-per-mille = <220>;
+        coast-ms = <680>;
         release-ms = <80>;
 
         /* A-G are stable camera-speed decks sampled from an S curve. */
