@@ -116,8 +116,8 @@
         stage-velocities-per-mille = <35 60 140 325 500 600 650>;
         stage-hysteresis-per-mille = <800>;
         low-stage-max-gap-ms = <88 72 48>;
-        /* A/B brake; C-G progressively increase the virtual camera mass. */
-        stage-mass-per-mille = <0 0 1000 1600 2400 3600 5200>;
+        /* A is the launch brake; B-G share one 3.0-unit camera mass. */
+        stage-mass-per-mille = <0 3000 3000 3000 3000 3000 3000>;
     };
 };
 
