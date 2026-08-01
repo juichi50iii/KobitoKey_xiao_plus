@@ -17,4 +17,4 @@ Docker Desktopを起動した状態で、リポジトリのルートから実行
 `outputs/local-docker-build/`へ保存されます。
 
 初回だけ公式ZMKビルドイメージと依存リポジトリを取得するため、時間がかかります。
-2回目以降は`.local-build/workspace/`のキャッシュを再利用します。
+2回目以降はDockerボリューム`kobitokey-xiao-plus-zmk-workspace`のキャッシュを再利用します。

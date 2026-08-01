@@ -11,15 +11,16 @@ case "$target" in
 esac
 
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
-workspace_dir="$repo_dir/.local-build/workspace"
 output_dir="$repo_dir/../../../outputs/local-docker-build"
 image="zmkfirmware/zmk-build-arm:3.5"
+workspace_volume="kobitokey-xiao-plus-zmk-workspace"
 
-mkdir -p "$workspace_dir" "$output_dir"
+mkdir -p "$output_dir"
+docker volume create "$workspace_volume" >/dev/null
 
 docker run --rm \
   --platform linux/amd64 \
-  --mount "type=bind,src=$workspace_dir,dst=/workspace" \
+  --mount "type=volume,src=$workspace_volume,dst=/workspace" \
   --mount "type=bind,src=$repo_dir/config,dst=/workspace/config,readonly" \
   --mount "type=bind,src=$output_dir,dst=/output" \
   --env "BUILD_TARGET=$target" \
