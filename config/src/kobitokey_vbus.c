@@ -25,7 +25,9 @@ static struct k_work_delayable vbus_change_work;
 static bool vbus_initialized;
 static bool previous_vbus_state;
 
-static kobitokey_vbus_callback_t state_change_callback;
+#define MAX_VBUS_CALLBACKS 4
+static kobitokey_vbus_callback_t state_change_callbacks[MAX_VBUS_CALLBACKS];
+static uint8_t state_change_callback_count;
 
 bool kobitokey_vbus_is_connected(void)
 {
@@ -45,7 +47,21 @@ bool kobitokey_vbus_is_connected(void)
 
 void kobitokey_vbus_set_callback(kobitokey_vbus_callback_t callback)
 {
-    state_change_callback = callback;
+    if (callback == NULL) {
+        return;
+    }
+
+    for (uint8_t i = 0; i < state_change_callback_count; i++) {
+        if (state_change_callbacks[i] == callback) {
+            return;
+        }
+    }
+
+    if (state_change_callback_count < MAX_VBUS_CALLBACKS) {
+        state_change_callbacks[state_change_callback_count++] = callback;
+    } else {
+        LOG_ERR("No room for another VBUS callback");
+    }
 }
 
 static void vbus_change_work_handler(struct k_work *work)
@@ -72,8 +88,8 @@ static void vbus_change_work_handler(struct k_work *work)
         LOG_INF("VBUS disconnected");
     }
 
-    if (state_change_callback != NULL) {
-        state_change_callback(current_vbus_state);
+    for (uint8_t i = 0; i < state_change_callback_count; i++) {
+        state_change_callbacks[i](current_vbus_state);
     }
 }
 

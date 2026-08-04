@@ -104,20 +104,22 @@
         low-speed-response = <70>;
         distance-divisor = <2>;
         max-velocity-per-mille = <650>;
-        launch-ms = <96>;
+        /* 160 ms x mass 3.0 = 480 ms for every inverse-S destination and landing. */
+        launch-ms = <160>;
         release-ms = <112>;
         rolling-friction = <5000>;
         quadratic-drag = <150>;
         static-velocity = <2>;
         max-coast-ms = <5000>;
-
-        /* A-G are stable camera-speed decks sampled from an S curve. */
+        /* A-G are samples of the continuous inverse Magnetic Landing S curve. */
         stage-thresholds = <180 300 500 800 1300 2100>;
-        stage-velocities-per-mille = <35 60 140 325 500 600 650>;
+        stage-velocities-per-mille = <35 56 164 343 521 629 650>;
+        /* Legacy anchors retained for compatibility; mirrored motion uses the S curve. */
+        stage-coast-ms = <231 306 465 656 733 749 750>;
         stage-hysteresis-per-mille = <800>;
         low-stage-max-gap-ms = <88 72 48>;
-        /* A is the launch brake; B-G share one 2.0-unit camera mass. */
-        stage-mass-per-mille = <0 2000 2000 2000 2000 2000 2000>;
+        /* Every motion, from launch through release, shares one 3.0-unit mass. */
+        stage-mass-per-mille = <3000 3000 3000 3000 3000 3000 3000>;
     };
 };
 

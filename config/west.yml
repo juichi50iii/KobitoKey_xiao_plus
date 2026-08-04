@@ -27,7 +27,7 @@ manifest:
     # LED
     - name: zmk-rgbled-widget
       remote: juichi50iii
-      revision: v0.3
+      revision: 1c008eb4484cbfd8bc3bb9d9b8ae0f8523483409
 
     #　Axis-lock
     - name: zmk-axis-lock
