@@ -1,114 +1,154 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..f18b34b 100644
+index f18b34b..9eaaa19 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
-@@ -58,8 +58,34 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
- #define WRITE_PROTECT_DISABLE 0x5a
- #define MOUSE_OPTION_MOVX_INV_BIT 3
- #define MOUSE_OPTION_MOVY_INV_BIT 4
-+#define MOUSE_OPTION_12BIT_MODE BIT(2)
- 
--#define PAW32XX_DATA_SIZE_BITS 8
-+/*
-+ * 12-bit deltas instead of the sensor's 8-bit default.
-+ *
-+ * At 8 bits a single sample carries at most +/-127 counts. With this
-+ * driver's 15ms sample period and ~760 effective cpi, that saturates at
-+ * roughly 11 ips -- well under the sensor's own 30 ips tracking spec --
-+ * so anything faster than a gentle swipe silently loses the excess and
-+ * the cursor reads as a dotted line rather than a continuous one. At 12
-+ * bits the same period saturates around 180 ips, i.e. never in practice.
-+ * (The PMW3610 build being compared against also uses 12-bit deltas.)
-+ */
-+#define PAW32XX_DATA_SIZE_BITS 12
+@@ -85,7 +85,23 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
+  * sensor within a sample or two instead of accumulating latency, which
+  * makes a rate slightly above the old 12ms safe to try again.
+  */
+-#define PAW32XX_SAMPLE_INTERVAL_MS 10
++#define PAW32XX_SAMPLE_INTERVAL_MS 5
 +
 +/*
-+ * Sample period while motion continues.
++ * Reporting is rate-limited separately from sampling, rather than the two
++ * being locked together as one period.
 + *
-+ * 8ms (matching the PMW3610 reference cadence) read as smoother but felt
-+ * heavy, because the queues between the driver and the radio were deep
-+ * enough (Zephyr's input queue at its default 16, ZMK's mouse report
-+ * queue at 20) to bank a large backlog whenever production outran the
-+ * ~10-20ms negotiated connection interval, and that backlog arrived
-+ * stale. Both queues are now shallow, so an overrun pushes back on the
-+ * sensor within a sample or two instead of accumulating latency, which
-+ * makes a rate slightly above the old 12ms safe to try again.
++ * The sensor is read every PAW32XX_SAMPLE_INTERVAL_MS so short direction
++ * changes are not averaged away, but a report is only emitted once
++ * PAW32XX_REPORT_INTERVAL_MS has elapsed since the last one, because
++ * producing faster than the negotiated BLE connection interval (measured
++ * 10-20ms) just backs up the HID queues and arrives stale.
++ *
++ * The check is on elapsed time at sample points, not a timer that sleeps
++ * until the deadline: whichever sample first crosses the threshold
++ * reports immediately, so rate limiting costs no added latency.
 + */
-+#define PAW32XX_SAMPLE_INTERVAL_MS 10
++#define PAW32XX_REPORT_INTERVAL_MS 10
  
  #define RESET_DELAY_MS 2
  
-@@ -298,11 +324,16 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
-     const struct paw32xx_config *cfg = dev->config;
-     int ret;
+@@ -109,9 +125,10 @@ struct paw32xx_data {
+     struct gpio_callback motion_cb;
+     struct k_timer motion_timer; // Add timer for delayed motion checking
  
-+    /* In 12-bit mode the upper 4 bits of each axis live in DELTA_XY_HI,
-+     * so it is read in the same CS-held transaction as the low bytes to
-+     * keep all three parts of one motion frame consistent. */
-     uint8_t tx_data[] = {
-         PAW32XX_DELTA_X,
-         0xff,
-         PAW32XX_DELTA_Y,
-         0xff,
-+        PAW32XX_DELTA_XY_HI,
-+        0xff,
-     };
-     uint8_t rx_data[sizeof(tx_data)];
+-    /* 閾値へ届くまで微小な移動量を保存する */
++    /* Raw, unrotated sensor counts collected since the last report. */
+     int32_t accumulated_x;
+     int32_t accumulated_y;
++    int64_t last_report_time;
+ };
  
-@@ -329,11 +360,12 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
-         return ret;
+ /*
+@@ -393,6 +410,31 @@ static void paw32xx_motion_timer_handler(struct k_timer *timer) {
+     k_work_submit(&data->motion_work);
+ }
+ 
++/* Rotate and emit everything accumulated so far, then clear it. */
++static void paw32xx_flush_accumulated(struct paw32xx_data *data) {
++    const struct paw32xx_config *cfg = data->dev->config;
++    int16_t x = (int16_t)CLAMP(data->accumulated_x, INT16_MIN, INT16_MAX);
++    int16_t y = (int16_t)CLAMP(data->accumulated_y, INT16_MIN, INT16_MAX);
++
++    data->accumulated_x = 0;
++    data->accumulated_y = 0;
++
++    if (x == 0 && y == 0) {
++        return;
++    }
++
++    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
++
++    if (x == 0 && y == 0) {
++        return;
++    }
++
++    LOG_DBG("x=%4d y=%4d", x, y);
++
++    input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
++    input_report_rel(data->dev, INPUT_REL_Y, y, true, K_FOREVER);
++}
++
+ static void paw32xx_motion_work_handler(struct k_work *work) {
+     struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, motion_work);
+     const struct device *dev = data->dev;
+@@ -407,17 +449,14 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
      }
  
--    *x = rx_data[1];
--    *y = rx_data[3];
-+    uint8_t xy_high = rx_data[5];
+     if ((val & MOTION_STATUS_MOTION) == 0x00) {
+-    // No motion detected, re-enable interrupts and wait for next interrupt
+-    paw32xx_interrupt_enable(dev);
+-
+-    if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
+-        /*
+-         * 一連の移動が終わったので、閾値未満の残量を破棄する。
+-         * 古いノイズが次回の動作へ持ち越されるのを防ぐ。
+-         */
+-        data->accumulated_x = 0;
+-        data->accumulated_y = 0;
+-        return;
++        // No motion detected, re-enable interrupts and wait for next interrupt
++        paw32xx_interrupt_enable(dev);
++
++        if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
++            /* End of a movement: flush whatever is left so the tail of the
++             * gesture is not dropped, then start the next one clean. */
++            paw32xx_flush_accumulated(data);
++            return;
+         }
+     }
  
--    *x = _sign_extend(*x, PAW32XX_DATA_SIZE_BITS - 1);
--    *y = _sign_extend(*y, PAW32XX_DATA_SIZE_BITS - 1);
-+    *x = (int16_t)_sign_extend(((uint16_t)(xy_high & 0xf0) << 4) | rx_data[1],
-+                               PAW32XX_DATA_SIZE_BITS - 1);
-+    *y = (int16_t)_sign_extend(((uint16_t)(xy_high & 0x0f) << 8) | rx_data[3],
-+                               PAW32XX_DATA_SIZE_BITS - 1);
- 
-     return 0;
- }
-@@ -415,7 +447,7 @@ if (cfg->movement_threshold > 0) {
-          * まだ閾値未満なので、ZMKへ移動イベントを送らない。
-          * ただし、次のセンサー読み取りは続ける。
-          */
--        k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
-+        k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
+@@ -426,45 +465,21 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
          return;
      }
  
-@@ -432,7 +464,7 @@ input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
- input_report_rel(data->dev, INPUT_REL_Y, y, true, K_FOREVER);
+-    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
+-
+-/*
+- * 閾値が設定されている場合は、移動量をX/Yそれぞれに溜め込む。
+- * どちらか一方が閾値へ到達したら、両軸の合計値をまとめて報告する。
+- */
+-if (cfg->movement_threshold > 0) {
++    /* Accumulate raw sensor counts and rotate only when reporting.
++     * Rotating each sample individually would round tiny per-sample deltas
++     * away entirely -- at 25 degrees a delta of (1, 0) becomes (0, 0) --
++     * and the shorter the sample period, the smaller those deltas get. */
+     data->accumulated_x += x;
+     data->accumulated_y += y;
  
- // Schedule next check after 15ms without using interrupts
--k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
-+k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
+-    if (abs(data->accumulated_x) < cfg->movement_threshold &&
+-        abs(data->accumulated_y) < cfg->movement_threshold) {
+-
+-        LOG_DBG("accumulating x=%4d y=%4d",
+-                data->accumulated_x,
+-                data->accumulated_y);
++    int64_t now = k_uptime_get();
+ 
+-        /*
+-         * まだ閾値未満なので、ZMKへ移動イベントを送らない。
+-         * ただし、次のセンサー読み取りは続ける。
+-         */
+-        k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
+-        return;
++    if (now - data->last_report_time >= PAW32XX_REPORT_INTERVAL_MS) {
++        data->last_report_time = now;
++        paw32xx_flush_accumulated(data);
+     }
+ 
+-    x = (int16_t)data->accumulated_x;
+-    y = (int16_t)data->accumulated_y;
+-
+-    data->accumulated_x = 0;
+-    data->accumulated_y = 0;
+-}
+-
+-LOG_DBG("x=%4d y=%4d", x, y);
+-
+-input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
+-input_report_rel(data->dev, INPUT_REL_Y, y, true, K_FOREVER);
+-
+-// Schedule next check after 15ms without using interrupts
+-k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
++    k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -567,6 +599,21 @@ static int paw32xx_configure(const struct device *dev) {
-         paw32xx_set_resolution(dev, cfg->res_cpi);
-     }
- 
-+    /* Switch the sensor to 12-bit deltas; it powers up in 8-bit mode. */
-+    ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_DISABLE);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+    ret = paw32xx_update_reg(dev, PAW32XX_MOUSE_OPTION, MOUSE_OPTION_12BIT_MODE,
-+                             MOUSE_OPTION_12BIT_MODE);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+    ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_ENABLE);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-     paw32xx_force_awake(dev, cfg->force_awake);
- 
-     // Dummy reads to clear any residual data
