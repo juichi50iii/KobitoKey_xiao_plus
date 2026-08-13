@@ -1,8 +1,8 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..157b1a2 100644
+index dcb89df..f993f8a 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
-@@ -58,8 +58,31 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
+@@ -58,8 +58,35 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
  #define WRITE_PROTECT_DISABLE 0x5a
  #define MOUSE_OPTION_MOVX_INV_BIT 3
  #define MOUSE_OPTION_MOVY_INV_BIT 4
@@ -23,19 +23,23 @@ index dcb89df..157b1a2 100644
 +#define PAW32XX_DATA_SIZE_BITS 12
 +
 +/*
-+ * Sample period while motion continues. Every PAW3222 ZMK driver in the
-+ * wild inherits 15ms (~66Hz) from the original; the PMW3610 build being
-+ * compared against effectively samples at that sensor's default 8ms RUN
-+ * rate (~125Hz), which is roughly twice as many position updates per
-+ * second. 8ms matches that reference cadence. Safe to raise now that
-+ * deltas are 12-bit: at 8 bits, sampling faster was the only thing
-+ * keeping saturation at bay, and slower sampling made it worse.
++ * Sample period while motion continues.
++ *
++ * 8ms (matching the PMW3610 reference cadence) did read as smoother, but
++ * this BLE link cannot carry 125Hz: the negotiated connection interval
++ * measures ~10-20ms, so samples pile up in the queues between the driver
++ * and the radio (Zephyr's input queue holds 16 events, ZMK's mouse report
++ * queue another few) and arrive stale, felt as a heavy, lagging cursor.
++ * Shrinking those queues only trims the symptom -- the real fix is not to
++ * produce faster than the transport drains. 12ms sits just above the
++ * negotiated interval, keeping most of the smoothness 8ms bought while
++ * staying inside what the link can actually deliver.
 + */
-+#define PAW32XX_SAMPLE_INTERVAL_MS 8
++#define PAW32XX_SAMPLE_INTERVAL_MS 12
  
  #define RESET_DELAY_MS 2
  
-@@ -298,11 +321,16 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+@@ -298,11 +325,16 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
      const struct paw32xx_config *cfg = dev->config;
      int ret;
  
@@ -52,7 +56,7 @@ index dcb89df..157b1a2 100644
      };
      uint8_t rx_data[sizeof(tx_data)];
  
-@@ -329,11 +357,12 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+@@ -329,11 +361,12 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
          return ret;
      }
  
@@ -69,7 +73,7 @@ index dcb89df..157b1a2 100644
  
      return 0;
  }
-@@ -415,7 +444,7 @@ if (cfg->movement_threshold > 0) {
+@@ -415,7 +448,7 @@ if (cfg->movement_threshold > 0) {
           * まだ閾値未満なので、ZMKへ移動イベントを送らない。
           * ただし、次のセンサー読み取りは続ける。
           */
@@ -78,7 +82,7 @@ index dcb89df..157b1a2 100644
          return;
      }
  
-@@ -432,7 +461,7 @@ input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
+@@ -432,7 +465,7 @@ input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
  input_report_rel(data->dev, INPUT_REL_Y, y, true, K_FOREVER);
  
  // Schedule next check after 15ms without using interrupts
@@ -87,7 +91,7 @@ index dcb89df..157b1a2 100644
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -567,6 +596,21 @@ static int paw32xx_configure(const struct device *dev) {
+@@ -567,6 +600,21 @@ static int paw32xx_configure(const struct device *dev) {
          paw32xx_set_resolution(dev, cfg->res_cpi);
      }
  
