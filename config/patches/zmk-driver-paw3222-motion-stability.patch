@@ -1,5 +1,5 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..d121b2d 100644
+index dcb89df..0c5ba80 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
 @@ -63,7 +63,7 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
@@ -11,11 +11,12 @@ index dcb89df..d121b2d 100644
  #define RES_MIN (16 * RES_STEP)
  #define RES_MAX (127 * RES_STEP)
  
-@@ -81,9 +81,9 @@ struct paw32xx_data {
+@@ -81,9 +81,10 @@ struct paw32xx_data {
      const struct device *dev;
      struct k_work motion_work;
      struct gpio_callback motion_cb;
 -    struct k_timer motion_timer; // Add timer for delayed motion checking
++    struct k_timer motion_timer;
  
 -    /* 閾値へ届くまで微小な移動量を保存する */
 +    /* Carries any remainder that CLAMP() drops when a single sample
@@ -23,7 +24,7 @@ index dcb89df..d121b2d 100644
      int32_t accumulated_x;
      int32_t accumulated_y;
  };
-@@ -170,6 +170,10 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
+@@ -170,6 +171,10 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
      int32_t original_y;
      int32_t rotated_x;
      int32_t rotated_y;
@@ -34,7 +35,7 @@ index dcb89df..d121b2d 100644
  
      normalized_angle = paw32xx_normalize_angle(angle);
  
-@@ -183,11 +187,13 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
+@@ -183,11 +188,13 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
      original_x = *x;
      original_y = *y;
  
@@ -52,7 +53,7 @@ index dcb89df..d121b2d 100644
  
      *x = (int16_t)rotated_x;
      *y = (int16_t)rotated_y;
-@@ -294,11 +300,18 @@ static int paw32xx_update_reg(const struct device *dev, uint8_t addr, uint8_t ma
+@@ -294,11 +301,18 @@ static int paw32xx_update_reg(const struct device *dev, uint8_t addr, uint8_t ma
      return 0;
  }
  
@@ -72,7 +73,7 @@ index dcb89df..d121b2d 100644
          PAW32XX_DELTA_X,
          0xff,
          PAW32XX_DELTA_Y,
-@@ -329,11 +342,9 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+@@ -329,11 +343,9 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
          return ret;
      }
  
@@ -87,23 +88,30 @@ index dcb89df..d121b2d 100644
  
      return 0;
  }
-@@ -356,83 +367,51 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
+@@ -356,83 +368,65 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
      return paw32xx_interrupt_configure(dev, GPIO_INT_DISABLE);
  }
  
--static void paw32xx_motion_timer_handler(struct k_timer *timer) {
--    struct paw32xx_data *data = CONTAINER_OF(timer, struct paw32xx_data, motion_timer);
--    k_work_submit(&data->motion_work);
--}
--
++/* Cap the sample/report rate at/above the BLE connection interval. 7.5ms
++ * was requested via Kconfig, but a haptic-pulse diagnostic measured the
++ * interval macOS actually negotiates at 10-20ms, so 16ms is used here
++ * instead of the previous 8ms attempt. Faster sampling than the transport's
++ * own cadence just makes the mouse-report queue coalesce/drop more often. */
++#define PAW32XX_SAMPLE_INTERVAL_MS 16
++
+ static void paw32xx_motion_timer_handler(struct k_timer *timer) {
+     struct paw32xx_data *data = CONTAINER_OF(timer, struct paw32xx_data, motion_timer);
+     k_work_submit(&data->motion_work);
+ }
+ 
 +/*
-+ * PMW3610-style pipeline: one SPI transaction reads status+X+Y, motion is
-+ * accumulated and reported immediately (no movement-threshold gating), and
-+ * the hardware interrupt is re-enabled right after processing instead of
-+ * falling back to a fixed-period software timer. Since the IRQ is
-+ * level-triggered, re-enabling it while the sensor still asserts the line
-+ * fires it again immediately, so cadence is driven by real motion events
-+ * rather than an artificial polling period.
++ * One SPI transaction reads status+X+Y (PMW3610-style burst read) and
++ * every sample is accumulated and reported immediately (no
++ * movement-threshold gating). Unlike the pure-interrupt-driven attempt,
++ * this paces repeated sampling during motion via a fixed-period timer
++ * instead of re-arming the hardware interrupt every single sample, so the
++ * report rate is capped at PAW32XX_SAMPLE_INTERVAL_MS. The hardware
++ * interrupt is only re-enabled once motion stops.
 + */
  static void paw32xx_motion_work_handler(struct k_work *work) {
      struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, motion_work);
@@ -136,11 +144,22 @@ index dcb89df..d121b2d 100644
 -         * 一連の移動が終わったので、閾値未満の残量を破棄する。
 -         * 古いノイズが次回の動作へ持ち越されるのを防ぐ。
 -         */
+-        data->accumulated_x = 0;
+-        data->accumulated_y = 0;
+-        return;
+-        }
+-    }
+-
+-    ret = paw32xx_read_xy(dev, &x, &y);
+-    if (ret < 0) {
+-        return;
+-    }
 +        if (have_x || have_y) {
 +            data->accumulated_x -= rx;
 +            data->accumulated_y -= ry;
 +            paw32xx_rotate_xy(&rx, &ry, cfg->rotation_angle);
-+
+ 
+-    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
 +            if (have_x) {
 +                input_report_rel(data->dev, INPUT_REL_X, rx, !have_y, K_NO_WAIT);
 +            }
@@ -148,20 +167,7 @@ index dcb89df..d121b2d 100644
 +                input_report_rel(data->dev, INPUT_REL_Y, ry, true, K_NO_WAIT);
 +            }
 +        }
-+    } else {
-         data->accumulated_x = 0;
-         data->accumulated_y = 0;
--        return;
--        }
-     }
  
--    ret = paw32xx_read_xy(dev, &x, &y);
--    if (ret < 0) {
--        return;
--    }
--
--    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
--
 -/*
 - * 閾値が設定されている場合は、移動量をX/Yそれぞれに溜め込む。
 - * どちらか一方が閾値へ到達したら、両軸の合計値をまとめて報告する。
@@ -182,14 +188,15 @@ index dcb89df..d121b2d 100644
 -         * ただし、次のセンサー読み取りは続ける。
 -         */
 -        k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
--        return;
--    }
--
++        k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
+         return;
+     }
+ 
 -    x = (int16_t)data->accumulated_x;
 -    y = (int16_t)data->accumulated_y;
 -
--    data->accumulated_x = 0;
--    data->accumulated_y = 0;
+     data->accumulated_x = 0;
+     data->accumulated_y = 0;
 -}
 -
 -LOG_DBG("x=%4d y=%4d", x, y);
@@ -203,7 +210,7 @@ index dcb89df..d121b2d 100644
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -443,13 +422,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
+@@ -443,13 +437,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
      ARG_UNUSED(gpio_dev);
      ARG_UNUSED(pins);
  
@@ -217,12 +224,11 @@ index dcb89df..d121b2d 100644
      k_work_submit(&data->motion_work);
  }
  
-@@ -591,8 +564,6 @@ static int paw32xx_init(const struct device *dev) {
+@@ -591,7 +579,6 @@ static int paw32xx_init(const struct device *dev) {
      data->dev = dev;
  
      k_work_init(&data->motion_work, paw32xx_motion_work_handler);
 -    // Initialize the timer for delayed motion checks
--    k_timer_init(&data->motion_timer, paw32xx_motion_timer_handler, NULL);
+     k_timer_init(&data->motion_timer, paw32xx_motion_timer_handler, NULL);
  
  #if DT_INST_NODE_HAS_PROP(0, power_gpios)
-     // Initialize power GPIO if defined
