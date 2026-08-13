@@ -1,0 +1,46 @@
+diff --git a/app/src/hog.c b/app/src/hog.c
+index 10da483..1111111 100644
+--- a/app/src/hog.c
++++ b/app/src/hog.c
+@@ -441,20 +441,19 @@ K_WORK_DEFINE(hog_mouse_work, send_mouse_report_callback);
+ 
+ int zmk_hog_send_mouse_report(struct zmk_hid_mouse_report_body *report) {
+-    int err = k_msgq_put(&zmk_hog_mouse_msgq, report, K_MSEC(100));
++    int err = k_msgq_put(&zmk_hog_mouse_msgq, report, K_NO_WAIT);
+     if (err) {
+-        switch (err) {
+-        case -EAGAIN: {
+-            LOG_WRN("Consumer message queue full, popping first message and queueing again");
+-            struct zmk_hid_mouse_report_body discarded_report;
+-            k_msgq_get(&zmk_hog_mouse_msgq, &discarded_report, K_NO_WAIT);
+-            return zmk_hog_send_mouse_report(report);
+-        }
+-        default:
+-            LOG_WRN("Failed to queue mouse report to send (%d)", err);
++        struct zmk_hid_mouse_report_body discarded_report;
++
++        /* Pointer motion must never stall the input work queue. Replace the
++         * stale timestamp, but preserve its unsent distance by folding all
++         * relative axes into the newest report. */
++        if (k_msgq_get(&zmk_hog_mouse_msgq, &discarded_report, K_NO_WAIT) != 0) {
+             return err;
+         }
++
++        report->d_x = CLAMP((int32_t)discarded_report.d_x + report->d_x,
++                            INT16_MIN, INT16_MAX);
++        report->d_y = CLAMP((int32_t)discarded_report.d_y + report->d_y,
++                            INT16_MIN, INT16_MAX);
++        report->d_scroll_y =
++            CLAMP((int32_t)discarded_report.d_scroll_y + report->d_scroll_y,
++                  INT16_MIN, INT16_MAX);
++        report->d_scroll_x =
++            CLAMP((int32_t)discarded_report.d_scroll_x + report->d_scroll_x,
++                  INT16_MIN, INT16_MAX);
++
++        err = k_msgq_put(&zmk_hog_mouse_msgq, report, K_NO_WAIT);
++        if (err) {
++            return err;
++        }
+     }
+ 
+     k_work_submit_to_queue(&hog_work_q, &hog_mouse_work);
