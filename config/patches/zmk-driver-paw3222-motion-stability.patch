@@ -1,5 +1,5 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..236103e 100644
+index dcb89df..ed6118e 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
 @@ -63,7 +63,7 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
@@ -88,7 +88,7 @@ index dcb89df..236103e 100644
  
      return 0;
  }
-@@ -356,83 +368,75 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
+@@ -356,83 +368,81 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
      return paw32xx_interrupt_configure(dev, GPIO_INT_DISABLE);
  }
  
@@ -143,10 +143,10 @@ index dcb89df..236103e 100644
 -    if ((val & MOTION_STATUS_MOTION) == 0x00) {
 -    // No motion detected, re-enable interrupts and wait for next interrupt
 -    paw32xx_interrupt_enable(dev);
-+    int16_t rx = (int16_t)CLAMP(data->accumulated_x, INT16_MIN, INT16_MAX);
-+    int16_t ry = (int16_t)CLAMP(data->accumulated_y, INT16_MIN, INT16_MAX);
-+    const bool have_x = rx != 0;
-+    const bool have_y = ry != 0;
++    int16_t delta_x = (int16_t)CLAMP(data->accumulated_x, INT16_MIN, INT16_MAX);
++    int16_t delta_y = (int16_t)CLAMP(data->accumulated_y, INT16_MIN, INT16_MAX);
++    const bool have_x = delta_x != 0;
++    const bool have_y = delta_y != 0;
  
 -    if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
 -        /*
@@ -166,9 +166,9 @@ index dcb89df..236103e 100644
 -    }
 -
 -    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
-+    data->accumulated_x -= rx;
-+    data->accumulated_y -= ry;
-+    paw32xx_rotate_xy(&rx, &ry, cfg->rotation_angle);
++    int16_t rot_x = delta_x;
++    int16_t rot_y = delta_y;
++    paw32xx_rotate_xy(&rot_x, &rot_y, cfg->rotation_angle);
  
 -/*
 - * 閾値が設定されている場合は、移動量をX/Yそれぞれに溜め込む。
@@ -191,11 +191,17 @@ index dcb89df..236103e 100644
 -         */
 -        k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
 -        return;
-+    if (have_x) {
-+        input_report_rel(data->dev, INPUT_REL_X, rx, !have_y, K_NO_WAIT);
++    /* Only consume the accumulator on a confirmed send. A failed send
++     * (e.g. the BLE mouse-report queue briefly full) leaves the
++     * un-rotated delta in place so it is included, undiminished, in the
++     * next attempt instead of being silently lost -- this is exactly the
++     * distance-loss bug this eager-reporting variant reintroduced by not
++     * checking input_report_rel()'s return value. */
++    if (!have_x || input_report_rel(data->dev, INPUT_REL_X, rot_x, !have_y, K_NO_WAIT) == 0) {
++        data->accumulated_x -= delta_x;
 +    }
-+    if (have_y) {
-+        input_report_rel(data->dev, INPUT_REL_Y, ry, true, K_NO_WAIT);
++    if (!have_y || input_report_rel(data->dev, INPUT_REL_Y, rot_y, true, K_NO_WAIT) == 0) {
++        data->accumulated_y -= delta_y;
      }
 -
 -    x = (int16_t)data->accumulated_x;
@@ -228,7 +234,7 @@ index dcb89df..236103e 100644
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -443,13 +447,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
+@@ -443,13 +453,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
      ARG_UNUSED(gpio_dev);
      ARG_UNUSED(pins);
  
@@ -242,7 +248,7 @@ index dcb89df..236103e 100644
      k_work_submit(&data->motion_work);
  }
  
-@@ -591,8 +589,14 @@ static int paw32xx_init(const struct device *dev) {
+@@ -591,8 +595,14 @@ static int paw32xx_init(const struct device *dev) {
      data->dev = dev;
  
      k_work_init(&data->motion_work, paw32xx_motion_work_handler);
