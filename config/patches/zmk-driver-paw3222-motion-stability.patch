@@ -1,5 +1,5 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index f18b34b..9eaaa19 100644
+index f18b34b..c75b047 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
 @@ -85,7 +85,23 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
@@ -7,7 +7,7 @@ index f18b34b..9eaaa19 100644
   * makes a rate slightly above the old 12ms safe to try again.
   */
 -#define PAW32XX_SAMPLE_INTERVAL_MS 10
-+#define PAW32XX_SAMPLE_INTERVAL_MS 5
++#define PAW32XX_SAMPLE_INTERVAL_MS 3
 +
 +/*
 + * Reporting is rate-limited separately from sampling, rather than the two
