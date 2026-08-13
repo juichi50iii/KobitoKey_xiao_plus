@@ -1,5 +1,5 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..ed6118e 100644
+index dcb89df..30754b6 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
 @@ -63,7 +63,7 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
@@ -16,7 +16,7 @@ index dcb89df..ed6118e 100644
      struct k_work motion_work;
      struct gpio_callback motion_cb;
 -    struct k_timer motion_timer; // Add timer for delayed motion checking
-+    struct k_work report_work;
++    struct k_work_delayable report_work;
  
 -    /* 閾値へ届くまで微小な移動量を保存する */
 +    /* Also carries any remainder that CLAMP() drops when a batch exceeds
@@ -88,7 +88,7 @@ index dcb89df..ed6118e 100644
  
      return 0;
  }
-@@ -356,83 +368,81 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
+@@ -356,83 +368,101 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
      return paw32xx_interrupt_configure(dev, GPIO_INT_DISABLE);
  }
  
@@ -96,6 +96,17 @@ index dcb89df..ed6118e 100644
 -    struct paw32xx_data *data = CONTAINER_OF(timer, struct paw32xx_data, motion_timer);
 -    k_work_submit(&data->motion_work);
 -}
+-
+-static void paw32xx_motion_work_handler(struct k_work *work) {
+-    struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, motion_work);
+-    const struct device *dev = data->dev;
+-    const struct paw32xx_config *cfg = dev->config;
+-    uint8_t val;
+-    int16_t x, y;
+-    int ret;
+-
+-    ret = paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
+-    if (ret < 0) {
 +/*
 + * Sampling and reporting are deliberately split into two independent
 + * execution contexts:
@@ -109,44 +120,55 @@ index dcb89df..ed6118e 100644
 + *   before re-enabling the interrupt, so a slow send stalled sampling and
 + *   lost real motion.
 + * - report_work (dedicated paw32xx_report_work_q, NOT the shared system
-+ *   workqueue): submitted after every sample instead of waiting for a
-+ *   fixed period, so each small delta gets its own report whenever the
-+ *   transport has room -- more, smaller steps instead of one larger jump
-+ *   per fixed tick, closer to how PMW3610 reads as a continuous line
-+ *   rather than a dotted one. If input_report_rel() ends up blocking on a
-+ *   full BLE queue, that happens on this dedicated thread only, so it
-+ *   cannot stall motion_work or anything else on the system workqueue --
-+ *   accumulation keeps going in the background and the next run just
-+ *   picks up whatever has built up since.
++ *   workqueue): submitted right after every sample instead of waiting for
++ *   a fixed period, so each small delta normally gets its own report as
++ *   soon as the transport has room.
++ *
++ * input_report_rel()'s own K_NO_WAIT only covers Zephyr's input-event
++ * submission. Downstream, ZMK's own zmk_hog_send_mouse_report() (hog.c)
++ * has its own hardcoded k_msgq_put(..., K_MSEC(100)) blocking wait that we
++ * do not control. When the BLE mouse-report queue is briefly full, this
++ * report_work thread can therefore block for up to 100ms -- harmless to
++ * motion_work (fully decoupled), but accumulated_x/y keeps growing during
++ * that whole block. Sending that whole backlog as a single oversized
++ * report next made the cursor visibly "teleport" (perceived as irregular
++ * pulsing: stall, then a big jump) instead of drawing a continuous line.
++ * PAW32XX_REPORT_STEP_MAX caps how much a single report may carry; any
++ * remainder is sent as fast follow-up reports a few ms apart instead of
++ * one lump, so a post-stall backlog drains as a short smooth ramp rather
++ * than one jump. Below the cap (the normal case), behavior is unchanged:
++ * everything sends in one shot with no added delay.
 + */
 +#define PAW32XX_REPORT_STACK_SIZE 1024
 +#define PAW32XX_REPORT_THREAD_PRIORITY CONFIG_SYSTEM_WORKQUEUE_PRIORITY
- 
--static void paw32xx_motion_work_handler(struct k_work *work) {
--    struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, motion_work);
--    const struct device *dev = data->dev;
--    const struct paw32xx_config *cfg = dev->config;
--    uint8_t val;
--    int16_t x, y;
--    int ret;
++#define PAW32XX_REPORT_STEP_MAX 64
++#define PAW32XX_REPORT_STEP_DELAY_MS 4
++
 +K_THREAD_STACK_DEFINE(paw32xx_report_stack, PAW32XX_REPORT_STACK_SIZE);
 +static struct k_work_q paw32xx_report_work_q;
- 
--    ret = paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
--    if (ret < 0) {
--        return;
--    }
++
 +static void paw32xx_report_work_handler(struct k_work *work) {
-+    struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, report_work);
++    struct k_work_delayable *dwork = k_work_delayable_from_work(work);
++    struct paw32xx_data *data = CONTAINER_OF(dwork, struct paw32xx_data, report_work);
 +    const struct paw32xx_config *cfg = data->dev->config;
++
++    int16_t delta_x =
++        (int16_t)CLAMP(data->accumulated_x, -PAW32XX_REPORT_STEP_MAX, PAW32XX_REPORT_STEP_MAX);
++    int16_t delta_y =
++        (int16_t)CLAMP(data->accumulated_y, -PAW32XX_REPORT_STEP_MAX, PAW32XX_REPORT_STEP_MAX);
++    const bool have_x = delta_x != 0;
++    const bool have_y = delta_y != 0;
++
++    if (!have_x && !have_y) {
+         return;
+     }
  
 -    if ((val & MOTION_STATUS_MOTION) == 0x00) {
 -    // No motion detected, re-enable interrupts and wait for next interrupt
 -    paw32xx_interrupt_enable(dev);
-+    int16_t delta_x = (int16_t)CLAMP(data->accumulated_x, INT16_MIN, INT16_MAX);
-+    int16_t delta_y = (int16_t)CLAMP(data->accumulated_y, INT16_MIN, INT16_MAX);
-+    const bool have_x = delta_x != 0;
-+    const bool have_y = delta_y != 0;
++    int16_t rot_x = delta_x;
++    int16_t rot_y = delta_y;
++    paw32xx_rotate_xy(&rot_x, &rot_y, cfg->rotation_angle);
  
 -    if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
 -        /*
@@ -155,21 +177,25 @@ index dcb89df..ed6118e 100644
 -         */
 -        data->accumulated_x = 0;
 -        data->accumulated_y = 0;
-+    if (!have_x && !have_y) {
-         return;
+-        return;
 -        }
++    /* Only consume the accumulator on a confirmed send. A failed send
++     * (e.g. the BLE mouse-report queue briefly full) leaves the
++     * un-rotated delta in place so it is included, undiminished, in the
++     * next attempt instead of being silently lost. */
++    if (!have_x || input_report_rel(data->dev, INPUT_REL_X, rot_x, !have_y, K_NO_WAIT) == 0) {
++        data->accumulated_x -= delta_x;
      }
- 
+-
 -    ret = paw32xx_read_xy(dev, &x, &y);
 -    if (ret < 0) {
 -        return;
--    }
--
--    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
-+    int16_t rot_x = delta_x;
-+    int16_t rot_y = delta_y;
-+    paw32xx_rotate_xy(&rot_x, &rot_y, cfg->rotation_angle);
++    if (!have_y || input_report_rel(data->dev, INPUT_REL_Y, rot_y, true, K_NO_WAIT) == 0) {
++        data->accumulated_y -= delta_y;
+     }
  
+-    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
+-
 -/*
 - * 閾値が設定されている場合は、移動量をX/Yそれぞれに溜め込む。
 - * どちらか一方が閾値へ到達したら、両軸の合計値をまとめて報告する。
@@ -191,17 +217,12 @@ index dcb89df..ed6118e 100644
 -         */
 -        k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
 -        return;
-+    /* Only consume the accumulator on a confirmed send. A failed send
-+     * (e.g. the BLE mouse-report queue briefly full) leaves the
-+     * un-rotated delta in place so it is included, undiminished, in the
-+     * next attempt instead of being silently lost -- this is exactly the
-+     * distance-loss bug this eager-reporting variant reintroduced by not
-+     * checking input_report_rel()'s return value. */
-+    if (!have_x || input_report_rel(data->dev, INPUT_REL_X, rot_x, !have_y, K_NO_WAIT) == 0) {
-+        data->accumulated_x -= delta_x;
-+    }
-+    if (!have_y || input_report_rel(data->dev, INPUT_REL_Y, rot_y, true, K_NO_WAIT) == 0) {
-+        data->accumulated_y -= delta_y;
++    /* Anything left over (only possible when the pre-clamp accumulator
++     * exceeded the step cap) gets its own follow-up report shortly after,
++     * instead of being dumped alongside this one. */
++    if (data->accumulated_x != 0 || data->accumulated_y != 0) {
++        k_work_reschedule_for_queue(&paw32xx_report_work_q, &data->report_work,
++                                     K_MSEC(PAW32XX_REPORT_STEP_DELAY_MS));
      }
 -
 -    x = (int16_t)data->accumulated_x;
@@ -225,7 +246,7 @@ index dcb89df..ed6118e 100644
 +    if (ret == 0 && (status & MOTION_STATUS_MOTION) != 0) {
 +        data->accumulated_x += x;
 +        data->accumulated_y += y;
-+        k_work_submit_to_queue(&paw32xx_report_work_q, &data->report_work);
++        k_work_reschedule_for_queue(&paw32xx_report_work_q, &data->report_work, K_NO_WAIT);
 +    }
  
 -// Schedule next check after 15ms without using interrupts
@@ -234,7 +255,7 @@ index dcb89df..ed6118e 100644
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -443,13 +453,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
+@@ -443,13 +473,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
      ARG_UNUSED(gpio_dev);
      ARG_UNUSED(pins);
  
@@ -248,7 +269,7 @@ index dcb89df..ed6118e 100644
      k_work_submit(&data->motion_work);
  }
  
-@@ -591,8 +595,14 @@ static int paw32xx_init(const struct device *dev) {
+@@ -591,8 +615,14 @@ static int paw32xx_init(const struct device *dev) {
      data->dev = dev;
  
      k_work_init(&data->motion_work, paw32xx_motion_work_handler);
@@ -261,7 +282,7 @@ index dcb89df..ed6118e 100644
 +    k_work_queue_start(&paw32xx_report_work_q, paw32xx_report_stack,
 +                        K_THREAD_STACK_SIZEOF(paw32xx_report_stack),
 +                        PAW32XX_REPORT_THREAD_PRIORITY, NULL);
-+    k_work_init(&data->report_work, paw32xx_report_work_handler);
++    k_work_init_delayable(&data->report_work, paw32xx_report_work_handler);
  
  #if DT_INST_NODE_HAS_PROP(0, power_gpios)
      // Initialize power GPIO if defined
