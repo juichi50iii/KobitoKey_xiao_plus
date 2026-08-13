@@ -1,16 +1,82 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..93e2996 100644
+index dcb89df..1e8c2d5 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
-@@ -63,7 +63,10 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
+@@ -58,8 +58,20 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
+ #define WRITE_PROTECT_DISABLE 0x5a
+ #define MOUSE_OPTION_MOVX_INV_BIT 3
+ #define MOUSE_OPTION_MOVY_INV_BIT 4
++#define MOUSE_OPTION_12BIT_MODE BIT(2)
+ 
+-#define PAW32XX_DATA_SIZE_BITS 8
++/*
++ * 12-bit deltas instead of the sensor's 8-bit default.
++ *
++ * At 8 bits a single sample carries at most +/-127 counts. With this
++ * driver's 15ms sample period and ~760 effective cpi, that saturates at
++ * roughly 11 ips -- well under the sensor's own 30 ips tracking spec --
++ * so anything faster than a gentle swipe silently loses the excess and
++ * the cursor reads as a dotted line rather than a continuous one. At 12
++ * bits the same period saturates around 180 ips, i.e. never in practice.
++ * (The PMW3610 build being compared against also uses 12-bit deltas.)
++ */
++#define PAW32XX_DATA_SIZE_BITS 12
  
  #define RESET_DELAY_MS 2
  
--#define RES_STEP 38
-+/* Changed from the vendor default of 38 solely so CPI 600 (a hard
-+ * requirement) is a valid value; RES_STEP only affects the CPI-to-register
-+ * step size, not sample timing or any other behavior in this file. */
-+#define RES_STEP 30
- #define RES_MIN (16 * RES_STEP)
- #define RES_MAX (127 * RES_STEP)
+@@ -298,11 +310,16 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+     const struct paw32xx_config *cfg = dev->config;
+     int ret;
  
++    /* In 12-bit mode the upper 4 bits of each axis live in DELTA_XY_HI,
++     * so it is read in the same CS-held transaction as the low bytes to
++     * keep all three parts of one motion frame consistent. */
+     uint8_t tx_data[] = {
+         PAW32XX_DELTA_X,
+         0xff,
+         PAW32XX_DELTA_Y,
+         0xff,
++        PAW32XX_DELTA_XY_HI,
++        0xff,
+     };
+     uint8_t rx_data[sizeof(tx_data)];
+ 
+@@ -329,11 +346,12 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+         return ret;
+     }
+ 
+-    *x = rx_data[1];
+-    *y = rx_data[3];
++    uint8_t xy_high = rx_data[5];
+ 
+-    *x = _sign_extend(*x, PAW32XX_DATA_SIZE_BITS - 1);
+-    *y = _sign_extend(*y, PAW32XX_DATA_SIZE_BITS - 1);
++    *x = (int16_t)_sign_extend(((uint16_t)(xy_high & 0xf0) << 4) | rx_data[1],
++                               PAW32XX_DATA_SIZE_BITS - 1);
++    *y = (int16_t)_sign_extend(((uint16_t)(xy_high & 0x0f) << 8) | rx_data[3],
++                               PAW32XX_DATA_SIZE_BITS - 1);
+ 
+     return 0;
+ }
+@@ -567,6 +585,21 @@ static int paw32xx_configure(const struct device *dev) {
+         paw32xx_set_resolution(dev, cfg->res_cpi);
+     }
+ 
++    /* Switch the sensor to 12-bit deltas; it powers up in 8-bit mode. */
++    ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_DISABLE);
++    if (ret < 0) {
++        return ret;
++    }
++    ret = paw32xx_update_reg(dev, PAW32XX_MOUSE_OPTION, MOUSE_OPTION_12BIT_MODE,
++                             MOUSE_OPTION_12BIT_MODE);
++    if (ret < 0) {
++        return ret;
++    }
++    ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_ENABLE);
++    if (ret < 0) {
++        return ret;
++    }
++
+     paw32xx_force_awake(dev, cfg->force_awake);
+ 
+     // Dummy reads to clear any residual data

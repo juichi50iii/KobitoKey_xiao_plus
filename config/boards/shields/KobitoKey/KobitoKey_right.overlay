@@ -39,7 +39,16 @@
         spi-max-frequency = <2000000>;
         irq-gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
         /* Closest valid PAW3222 setting to the PMW3610 build's 600 CPI. */
-        res-cpi = <600>;
+        /*
+         * The PAW3222 cpi register steps in units of 38 (per datasheet),
+         * so 760 = 20 * 38 is a real, exactly-representable value. This
+         * previously read 600 only because the driver had been patched to
+         * pretend the step was 30: 600/30 also wrote register value 20,
+         * i.e. the sensor has actually been running at 760 cpi all along.
+         * Keeping the effective cpi identical here means the 12-bit change
+         * is the only variable in this build.
+         */
+        res-cpi = <760>;
         rotation-angle = <25>;
         movement-threshold = <1>;
         /* No force-awake: the PMW3610 build never forces its sensor awake
