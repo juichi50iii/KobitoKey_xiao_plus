@@ -8,12 +8,23 @@
 
 LOG_MODULE_REGISTER(kobitokey_ble_diag, CONFIG_ZMK_LOG_LEVEL);
 
+/* Declared directly instead of including the driver's header: the
+ * zmk-driver-paw3222 module's CMakeLists exposes its include directory
+ * via ${CMAKE_SOURCE_DIR}/include, which resolves relative to the whole
+ * build (zmk/app), not the module itself, so it isn't reliably reachable
+ * from this library's include path. */
+extern void paw32xx_set_sample_interval_ms(uint32_t ms);
+
 /*
- * Temporary diagnostic build: there is no serial console available, so this
- * reports the negotiated BLE connection interval via haptic pulses instead.
- * Fires 1.5s after the interval settles (each new param-update event
- * reschedules it), so it reflects the interval actually used once the link
- * is idle, not a fleeting intermediate value from connection setup.
+ * Keeps the PAW3222 sensor's sample/report pacing synced to the BLE
+ * connection interval macOS actually negotiates (measured 10-20ms,
+ * vs. the 7.5ms requested via Kconfig), instead of a fixed guess.
+ *
+ * Also reports the interval via haptic pulses, since there is no serial
+ * console available (xiao_serial is disabled). Fires 1.5s after the
+ * interval settles (each new param-update event reschedules it), so it
+ * reflects the interval actually used once the link is idle, not a
+ * fleeting intermediate value from connection setup.
  *
  * Pulse count buckets (interval = raw units * 1.25ms):
  *   1 pulse  : <= 10ms  (close to the requested 7.5ms)
@@ -62,6 +73,11 @@ static void diag_le_param_updated(struct bt_conn *conn, uint16_t interval, uint1
     ARG_UNUSED(timeout);
 
     last_interval = interval;
+
+    /* Round up: the sample interval must never be shorter than the real
+     * connection interval, only equal to or longer than it. */
+    paw32xx_set_sample_interval_ms(((uint32_t)interval * 5 + 3) / 4);
+
     k_work_reschedule(&diag_work, K_MSEC(DIAG_START_DELAY_MS));
 }
 
