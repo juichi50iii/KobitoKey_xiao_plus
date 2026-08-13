@@ -1,25 +1,5 @@
-diff --git a/include/paw3222.h b/include/paw3222.h
-index 8d0a31c..5b01308 100644
---- a/include/paw3222.h
-+++ b/include/paw3222.h
-@@ -25,4 +25,14 @@ int paw32xx_set_resolution(const struct device *dev, uint16_t res_cpi);
-  */
- int paw32xx_force_awake(const struct device *dev, bool enable);
- 
-+/**
-+ * @brief Set the sample/report pacing interval used during motion
-+ *
-+ * Only one paw32xx instance exists in this build, so this affects the
-+ * single sensor rather than taking a device pointer.
-+ *
-+ * @param ms minimum milliseconds between samples while motion continues.
-+ */
-+void paw32xx_set_sample_interval_ms(uint32_t ms);
-+
- #endif /* ZEPHYR_INCLUDE_INPUT_PAW32XX_H_ */
-\ No newline at end of file
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..0be5635 100644
+index dcb89df..0c5ba80 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
 @@ -63,7 +63,7 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
@@ -108,29 +88,16 @@ index dcb89df..0be5635 100644
  
      return 0;
  }
-@@ -356,83 +368,78 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
+@@ -356,83 +368,65 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
      return paw32xx_interrupt_configure(dev, GPIO_INT_DISABLE);
  }
  
-+/*
-+ * Cap the sample/report rate at/above the BLE connection interval so the
-+ * sensor cannot outrun the transport and force the mouse-report queue to
-+ * coalesce/drop reports. The interval macOS actually negotiates (measured
-+ * 10-20ms, vs. the 7.5ms requested via Kconfig) can vary, so this is kept
-+ * as a runtime value that kobitokey_ble_diag.c updates from the real
-+ * connection-parameter-update event instead of a fixed guess.
-+ *
-+ * Only one paw32xx instance exists in this build, so a single module-level
-+ * value (rather than per-device state) is sufficient.
-+ */
-+#define PAW32XX_DEFAULT_SAMPLE_INTERVAL_MS 16
-+
-+static uint32_t sample_interval_ms = PAW32XX_DEFAULT_SAMPLE_INTERVAL_MS;
-+
-+void paw32xx_set_sample_interval_ms(uint32_t ms)
-+{
-+    sample_interval_ms = MAX(ms, 1);
-+}
++/* Cap the sample/report rate at/above the BLE connection interval. 7.5ms
++ * was requested via Kconfig, but a haptic-pulse diagnostic measured the
++ * interval macOS actually negotiates at 10-20ms, so 16ms is used here
++ * instead of the previous 8ms attempt. Faster sampling than the transport's
++ * own cadence just makes the mouse-report queue coalesce/drop more often. */
++#define PAW32XX_SAMPLE_INTERVAL_MS 16
 +
  static void paw32xx_motion_timer_handler(struct k_timer *timer) {
      struct paw32xx_data *data = CONTAINER_OF(timer, struct paw32xx_data, motion_timer);
@@ -143,7 +110,7 @@ index dcb89df..0be5635 100644
 + * movement-threshold gating). Unlike the pure-interrupt-driven attempt,
 + * this paces repeated sampling during motion via a fixed-period timer
 + * instead of re-arming the hardware interrupt every single sample, so the
-+ * report rate is capped at sample_interval_ms. The hardware
++ * report rate is capped at PAW32XX_SAMPLE_INTERVAL_MS. The hardware
 + * interrupt is only re-enabled once motion stops.
 + */
  static void paw32xx_motion_work_handler(struct k_work *work) {
@@ -221,7 +188,7 @@ index dcb89df..0be5635 100644
 -         * ただし、次のセンサー読み取りは続ける。
 -         */
 -        k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
-+        k_timer_start(&data->motion_timer, K_MSEC(sample_interval_ms), K_NO_WAIT);
++        k_timer_start(&data->motion_timer, K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
          return;
      }
  
@@ -243,7 +210,7 @@ index dcb89df..0be5635 100644
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -443,13 +450,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
+@@ -443,13 +437,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
      ARG_UNUSED(gpio_dev);
      ARG_UNUSED(pins);
  
@@ -257,7 +224,7 @@ index dcb89df..0be5635 100644
      k_work_submit(&data->motion_work);
  }
  
-@@ -591,7 +592,6 @@ static int paw32xx_init(const struct device *dev) {
+@@ -591,7 +579,6 @@ static int paw32xx_init(const struct device *dev) {
      data->dev = dev;
  
      k_work_init(&data->motion_work, paw32xx_motion_work_handler);
