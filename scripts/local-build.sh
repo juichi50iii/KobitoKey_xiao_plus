@@ -13,7 +13,7 @@ esac
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 output_dir="$repo_dir/../../../outputs/local-docker-build"
 image="zmkfirmware/zmk-build-arm:3.5"
-workspace_volume="kobitokey-xiao-plus-zmk-workspace"
+workspace_volume="${ZMK_WORKSPACE_VOLUME:-kobitokey-xiao-plus-zmk-workspace}"
 
 mkdir -p "$output_dir"
 docker volume create "$workspace_volume" >/dev/null
@@ -34,6 +34,46 @@ docker run --rm \
     fi
 
     west update --fetch-opt=--filter=tree:0
+
+    # The persistent Docker workspace may still contain patches from an older
+    # experiment. Restore tracked files from their own reversible diff before
+    # applying the patches selected by this build.
+    for repo in /workspace/zmk /workspace/zmk-driver-paw3222; do
+      if ! git -C "$repo" diff --quiet; then
+        git -C "$repo" diff --binary | git -C "$repo" apply --reverse
+      fi
+    done
+
+    # Skipped (2026-08-13): comparison with the PMW3610-based build showed
+    # it uses stock ZMK mouse-report send (K_MSEC(100) blocking, discard
+    # oldest only after a real timeout) with no custom patch at all. Our
+    # nonblocking+fold-into-newest behavior merges deltas into a single
+    # bigger jump whenever the queue is briefly full, which reads as a
+    # visible kaku snap. Now that sensor pacing (16ms) is reasonably
+    # close to the real BLE interval, blocking should rarely engage for
+    # long, so this reverts to stock to test whether it is smoother.
+    # zmk_mouse_patch=/workspace/config/patches/zmk-ble-mouse-nonblocking.patch
+    # if git -C /workspace/zmk apply --recount --check "$zmk_mouse_patch"; then
+    #   git -C /workspace/zmk apply --recount "$zmk_mouse_patch"
+    # elif ! git -C /workspace/zmk apply --recount --reverse --check "$zmk_mouse_patch"; then
+    #   echo "ZMK nonblocking mouse patch does not apply cleanly" >&2
+    #   exit 1
+    # fi
+
+    paw_patch=/workspace/config/patches/zmk-driver-paw3222-late-init.patch
+    if git -C /workspace/zmk-driver-paw3222 apply --check "$paw_patch"; then
+      git -C /workspace/zmk-driver-paw3222 apply "$paw_patch"
+    elif ! git -C /workspace/zmk-driver-paw3222 apply --reverse --check "$paw_patch"; then
+      echo "PAW3222 late-init patch does not apply cleanly" >&2
+      exit 1
+    fi
+    motion_patch=/workspace/config/patches/zmk-driver-paw3222-motion-stability.patch
+    if git -C /workspace/zmk-driver-paw3222 apply --recount --check "$motion_patch"; then
+      git -C /workspace/zmk-driver-paw3222 apply --recount "$motion_patch"
+    elif ! git -C /workspace/zmk-driver-paw3222 apply --recount --reverse --check "$motion_patch"; then
+      echo "PAW3222 motion-stability patch does not apply cleanly" >&2
+      exit 1
+    fi
     west zephyr-export
 
     build_one() {
