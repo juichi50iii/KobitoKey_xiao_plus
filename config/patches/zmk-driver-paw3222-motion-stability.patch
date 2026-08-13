@@ -1,24 +1,8 @@
 diff --git a/src/paw3222.c b/src/paw3222.c
-index dcb89df..5a0b31b 100644
+index dcb89df..d121b2d 100644
 --- a/src/paw3222.c
 +++ b/src/paw3222.c
-@@ -49,6 +49,8 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
- #define SPI_WRITE BIT(7)
- 
- #define MOTION_STATUS_MOTION BIT(7)
-+#define MOTION_STATUS_DY_OVERFLOW BIT(4)
-+#define MOTION_STATUS_DX_OVERFLOW BIT(3)
- #define OPERATION_MODE_SLP_ENH BIT(4)
- #define OPERATION_MODE_SLP2_ENH BIT(3)
- #define OPERATION_MODE_SLP_MASK (OPERATION_MODE_SLP_ENH | OPERATION_MODE_SLP2_ENH)
-@@ -58,12 +60,13 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
- #define WRITE_PROTECT_DISABLE 0x5a
- #define MOUSE_OPTION_MOVX_INV_BIT 3
- #define MOUSE_OPTION_MOVY_INV_BIT 4
-+#define MOUSE_OPTION_12BIT_MODE BIT(2)
- 
--#define PAW32XX_DATA_SIZE_BITS 8
-+#define PAW32XX_DATA_SIZE_BITS 12
+@@ -63,7 +63,7 @@ LOG_MODULE_REGISTER(paw32xx, CONFIG_ZMK_LOG_LEVEL);
  
  #define RESET_DELAY_MS 2
  
@@ -27,7 +11,19 @@ index dcb89df..5a0b31b 100644
  #define RES_MIN (16 * RES_STEP)
  #define RES_MAX (127 * RES_STEP)
  
-@@ -170,6 +173,10 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
+@@ -81,9 +81,9 @@ struct paw32xx_data {
+     const struct device *dev;
+     struct k_work motion_work;
+     struct gpio_callback motion_cb;
+-    struct k_timer motion_timer; // Add timer for delayed motion checking
+ 
+-    /* 閾値へ届くまで微小な移動量を保存する */
++    /* Carries any remainder that CLAMP() drops when a single sample
++     * exceeds int16 range (matches the PMW3610 driver's dx/dy pattern). */
+     int32_t accumulated_x;
+     int32_t accumulated_y;
+ };
+@@ -170,6 +170,10 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
      int32_t original_y;
      int32_t rotated_x;
      int32_t rotated_y;
@@ -38,7 +34,7 @@ index dcb89df..5a0b31b 100644
  
      normalized_angle = paw32xx_normalize_angle(angle);
  
-@@ -183,11 +190,13 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
+@@ -183,11 +187,13 @@ static void paw32xx_rotate_xy(int16_t *x, int16_t *y, int16_t angle)
      original_x = *x;
      original_y = *y;
  
@@ -56,65 +52,27 @@ index dcb89df..5a0b31b 100644
  
      *x = (int16_t)rotated_x;
      *y = (int16_t)rotated_y;
-@@ -261,6 +270,15 @@ static int paw32xx_read_reg(const struct device *dev, uint8_t addr, uint8_t *val
- 
- static int paw32xx_write_reg(const struct device *dev, uint8_t addr, uint8_t value) {
-     const struct paw32xx_config *cfg = dev->config;
-+    const struct gpio_dt_spec *cs = &cfg->spi.config.cs.gpio;
-+    struct spi_config spi_config = cfg->spi.config;
-+    int ret;
-+
-+    if (cs->port == NULL) {
-+        return -ENODEV;
-+    }
-+
-+    spi_config.cs.gpio.port = NULL;
- 
-     uint8_t write_buf[] = {addr | SPI_WRITE, value};
-     const struct spi_buf tx_buf = {
-@@ -272,7 +290,22 @@ static int paw32xx_write_reg(const struct device *dev, uint8_t addr, uint8_t val
-         .count = 1,
-     };
- 
--    return spi_write_dt(&cfg->spi, &tx);
-+    ret = gpio_pin_set_dt(cs, 1);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+    k_busy_wait(1);
-+
-+    ret = spi_write(cfg->spi.bus, &spi_config, &tx);
-+    k_busy_wait(34);
-+    {
-+        int cs_ret = gpio_pin_set_dt(cs, 0);
-+        if (ret == 0 && cs_ret < 0) {
-+            ret = cs_ret;
-+        }
-+    }
-+    k_busy_wait(145);
-+    return ret;
+@@ -294,11 +300,18 @@ static int paw32xx_update_reg(const struct device *dev, uint8_t addr, uint8_t ma
+     return 0;
  }
  
- static int paw32xx_update_reg(const struct device *dev, uint8_t addr, uint8_t mask, uint8_t value) {
-@@ -298,11 +331,17 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+-static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
++/* Read MOTION, DELTA_X and DELTA_Y (contiguous registers 0x02-0x04) in a
++ * single CS-held SPI transaction, mirroring the PMW3610 driver's one-shot
++ * motion-burst read instead of a separate status read followed by a
++ * separate XY read. */
++static int paw32xx_read_motion_xy(const struct device *dev, uint8_t *status, int16_t *x,
++                                   int16_t *y) {
      const struct paw32xx_config *cfg = dev->config;
      int ret;
  
-+    /* Read DELTA_X, DELTA_Y and DELTA_XY_HI in a single CS-held
-+     * transaction (address byte followed by a dummy clock byte per
-+     * register), matching the pre-12bit driver's burst-style access
-+     * instead of three separate CS pulses with busy-wait delays. */
      uint8_t tx_data[] = {
++        PAW32XX_MOTION,
++        0xff,
          PAW32XX_DELTA_X,
          0xff,
          PAW32XX_DELTA_Y,
-         0xff,
-+        PAW32XX_DELTA_XY_HI,
-+        0xff,
-     };
-     uint8_t rx_data[sizeof(tx_data)];
- 
-@@ -329,12 +368,14 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
+@@ -329,11 +342,9 @@ static int paw32xx_read_xy(const struct device *dev, int16_t *x, int16_t *y) {
          return ret;
      }
  
@@ -123,104 +81,87 @@ index dcb89df..5a0b31b 100644
 -
 -    *x = _sign_extend(*x, PAW32XX_DATA_SIZE_BITS - 1);
 -    *y = _sign_extend(*y, PAW32XX_DATA_SIZE_BITS - 1);
-+    uint8_t raw_x = rx_data[1];
-+    uint8_t raw_y = rx_data[3];
-+    uint8_t raw_xy_high = rx_data[5];
++    *status = rx_data[1];
++    *x = _sign_extend(rx_data[3], PAW32XX_DATA_SIZE_BITS - 1);
++    *y = _sign_extend(rx_data[5], PAW32XX_DATA_SIZE_BITS - 1);
  
-+    *x = (int16_t)_sign_extend(((uint16_t)(raw_xy_high & 0xf0) << 4) | raw_x,
-+                               PAW32XX_DATA_SIZE_BITS - 1);
-+    *y = (int16_t)_sign_extend(((uint16_t)(raw_xy_high & 0x0f) << 8) | raw_y,
-+                               PAW32XX_DATA_SIZE_BITS - 1);
      return 0;
  }
- 
-@@ -361,6 +402,45 @@ static void paw32xx_motion_timer_handler(struct k_timer *timer) {
-     k_work_submit(&data->motion_work);
+@@ -356,83 +367,51 @@ static int paw32xx_interrupt_disable(const struct device *dev) {
+     return paw32xx_interrupt_configure(dev, GPIO_INT_DISABLE);
  }
  
-+#define PAW32XX_SAMPLE_INTERVAL_MS 4
-+
-+static void paw32xx_report_accumulated(struct paw32xx_data *data) {
-+    const struct paw32xx_config *cfg = data->dev->config;
-+    int16_t x = (int16_t)CLAMP(data->accumulated_x, INT16_MIN, INT16_MAX);
-+    int16_t y = (int16_t)CLAMP(data->accumulated_y, INT16_MIN, INT16_MAX);
-+
-+    if (x == 0 && y == 0) {
-+        return;
-+    }
-+
-+    /* Accumulate sensor-native X/Y first, then rotate the complete report
-+     * once. This matches the PMW3610 pipeline and avoids distributing tiny
-+     * per-sample values alternately between the two output axes. */
-+    data->accumulated_x -= x;
-+    data->accumulated_y -= y;
-+    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
-+
-+    const bool have_x = x != 0;
-+    const bool have_y = y != 0;
-+
-+    if (have_x) {
-+        input_report_rel(data->dev, INPUT_REL_X, x, !have_y, K_NO_WAIT);
-+    }
-+    if (have_y) {
-+        input_report_rel(data->dev, INPUT_REL_Y, y, true, K_NO_WAIT);
-+    }
-+}
-+
-+static void paw32xx_recover_motion(struct paw32xx_data *data) {
-+    const struct paw32xx_config *cfg = data->dev->config;
-+    data->accumulated_x = 0;
-+    data->accumulated_y = 0;
-+    paw32xx_interrupt_enable(data->dev);
-+    if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
-+        k_timer_start(&data->motion_timer, K_MSEC(1), K_NO_WAIT);
-+    }
-+}
-+
+-static void paw32xx_motion_timer_handler(struct k_timer *timer) {
+-    struct paw32xx_data *data = CONTAINER_OF(timer, struct paw32xx_data, motion_timer);
+-    k_work_submit(&data->motion_work);
+-}
+-
++/*
++ * PMW3610-style pipeline: one SPI transaction reads status+X+Y, motion is
++ * accumulated and reported immediately (no movement-threshold gating), and
++ * the hardware interrupt is re-enabled right after processing instead of
++ * falling back to a fixed-period software timer. Since the IRQ is
++ * level-triggered, re-enabling it while the sensor still asserts the line
++ * fires it again immediately, so cadence is driven by real motion events
++ * rather than an artificial polling period.
++ */
  static void paw32xx_motion_work_handler(struct k_work *work) {
      struct paw32xx_data *data = CONTAINER_OF(work, struct paw32xx_data, motion_work);
      const struct device *dev = data->dev;
-@@ -371,68 +451,49 @@ static void paw32xx_motion_work_handler(struct k_work *work) {
+     const struct paw32xx_config *cfg = dev->config;
+-    uint8_t val;
++    uint8_t status;
+     int16_t x, y;
+     int ret;
  
-     ret = paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
-     if (ret < 0) {
-+        paw32xx_recover_motion(data);
-         return;
-     }
+-    ret = paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
+-    if (ret < 0) {
+-        return;
+-    }
++    ret = paw32xx_read_motion_xy(dev, &status, &x, &y);
++    if (ret == 0 && (status & MOTION_STATUS_MOTION) != 0) {
++        data->accumulated_x += x;
++        data->accumulated_y += y;
  
 -    if ((val & MOTION_STATUS_MOTION) == 0x00) {
 -    // No motion detected, re-enable interrupts and wait for next interrupt
 -    paw32xx_interrupt_enable(dev);
-+    if ((val & (MOTION_STATUS_DX_OVERFLOW | MOTION_STATUS_DY_OVERFLOW)) != 0) {
-+        LOG_WRN("PAW3222 motion overflow: 0x%02x", val);
-+    }
++        int16_t rx = (int16_t)CLAMP(data->accumulated_x, INT16_MIN, INT16_MAX);
++        int16_t ry = (int16_t)CLAMP(data->accumulated_y, INT16_MIN, INT16_MAX);
++        const bool have_x = rx != 0;
++        const bool have_y = ry != 0;
  
 -    if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
 -        /*
 -         * 一連の移動が終わったので、閾値未満の残量を破棄する。
 -         * 古いノイズが次回の動作へ持ち越されるのを防ぐ。
 -         */
-+    if ((val & MOTION_STATUS_MOTION) == 0x00) {
-+        paw32xx_report_accumulated(data);
++        if (have_x || have_y) {
++            data->accumulated_x -= rx;
++            data->accumulated_y -= ry;
++            paw32xx_rotate_xy(&rx, &ry, cfg->rotation_angle);
++
++            if (have_x) {
++                input_report_rel(data->dev, INPUT_REL_X, rx, !have_y, K_NO_WAIT);
++            }
++            if (have_y) {
++                input_report_rel(data->dev, INPUT_REL_Y, ry, true, K_NO_WAIT);
++            }
++        }
++    } else {
          data->accumulated_x = 0;
          data->accumulated_y = 0;
 -        return;
-+        paw32xx_interrupt_enable(dev);
-+
-+        if (gpio_pin_get_dt(&cfg->irq_gpio) == 0) {
-+            k_timer_start(&data->motion_timer, K_MSEC(1), K_NO_WAIT);
-         }
-+        return;
+-        }
      }
  
-     ret = paw32xx_read_xy(dev, &x, &y);
-     if (ret < 0) {
-+        paw32xx_recover_motion(data);
-         return;
-     }
- 
+-    ret = paw32xx_read_xy(dev, &x, &y);
+-    if (ret < 0) {
+-        return;
+-    }
+-
 -    paw32xx_rotate_xy(&x, &y, cfg->rotation_angle);
- 
+-
 -/*
 - * 閾値が設定されている場合は、移動量をX/Yそれぞれに溜め込む。
 - * どちらか一方が閾値へ到達したら、両軸の合計値をまとめて報告する。
@@ -228,12 +169,9 @@ index dcb89df..5a0b31b 100644
 -if (cfg->movement_threshold > 0) {
 -    data->accumulated_x += x;
 -    data->accumulated_y += y;
-+data->accumulated_x += x;
-+data->accumulated_y += y;
- 
-+if (cfg->movement_threshold > 0) {
-     if (abs(data->accumulated_x) < cfg->movement_threshold &&
-         abs(data->accumulated_y) < cfg->movement_threshold) {
+-
+-    if (abs(data->accumulated_x) < cfg->movement_threshold &&
+-        abs(data->accumulated_y) < cfg->movement_threshold) {
 -
 -        LOG_DBG("accumulating x=%4d y=%4d",
 -                data->accumulated_x,
@@ -244,104 +182,47 @@ index dcb89df..5a0b31b 100644
 -         * ただし、次のセンサー読み取りは続ける。
 -         */
 -        k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
-+        k_timer_start(&data->motion_timer,
-+                      K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
-         return;
-     }
+-        return;
+-    }
 -
 -    x = (int16_t)data->accumulated_x;
 -    y = (int16_t)data->accumulated_y;
 -
 -    data->accumulated_x = 0;
 -    data->accumulated_y = 0;
- }
- 
+-}
+-
 -LOG_DBG("x=%4d y=%4d", x, y);
 -
 -input_report_rel(data->dev, INPUT_REL_X, x, false, K_FOREVER);
 -input_report_rel(data->dev, INPUT_REL_Y, y, true, K_FOREVER);
-+paw32xx_report_accumulated(data);
- 
+-
 -// Schedule next check after 15ms without using interrupts
 -k_timer_start(&data->motion_timer, K_MSEC(15), K_NO_WAIT);
-+k_timer_start(&data->motion_timer,
-+              K_MSEC(PAW32XX_SAMPLE_INTERVAL_MS), K_NO_WAIT);
++    paw32xx_interrupt_enable(dev);
  }
  
  static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_callback *cb,
-@@ -509,6 +570,45 @@ int paw32xx_force_awake(const struct device *dev, bool enable) {
-     return 0;
+@@ -443,13 +422,7 @@ static void paw32xx_motion_handler(const struct device *gpio_dev, struct gpio_ca
+     ARG_UNUSED(gpio_dev);
+     ARG_UNUSED(pins);
+ 
+-    // Disable interrupts while timer is active
+     paw32xx_interrupt_disable(dev);
+-
+-    // Cancel any pending timer
+-    k_timer_stop(&data->motion_timer);
+-
+-    // Process motion
+     k_work_submit(&data->motion_work);
  }
  
-+static int paw32xx_enable_12bit_mode(const struct device *dev) {
-+    int ret = paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_DISABLE);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    ret = paw32xx_update_reg(dev, PAW32XX_MOUSE_OPTION,
-+                             MOUSE_OPTION_12BIT_MODE, MOUSE_OPTION_12BIT_MODE);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    return paw32xx_write_reg(dev, PAW32XX_WRITE_PROTECT, WRITE_PROTECT_ENABLE);
-+}
-+
-+static int paw32xx_verify_configuration(const struct device *dev) {
-+    const struct paw32xx_config *cfg = dev->config;
-+    uint8_t value;
-+    int ret = paw32xx_read_reg(dev, PAW32XX_MOUSE_OPTION, &value);
-+    if (ret < 0 || (value & MOUSE_OPTION_12BIT_MODE) == 0) {
-+        return ret < 0 ? ret : -EIO;
-+    }
-+
-+    ret = paw32xx_read_reg(dev, PAW32XX_CPI_X, &value);
-+    if (ret < 0 || value != cfg->res_cpi / RES_STEP) {
-+        return ret < 0 ? ret : -EIO;
-+    }
-+    ret = paw32xx_read_reg(dev, PAW32XX_CPI_Y, &value);
-+    if (ret < 0 || value != cfg->res_cpi / RES_STEP) {
-+        return ret < 0 ? ret : -EIO;
-+    }
-+
-+    ret = paw32xx_read_reg(dev, PAW32XX_OPERATION_MODE, &value);
-+    if (ret < 0 || (cfg->force_awake && (value & OPERATION_MODE_SLP_MASK) != 0)) {
-+        return ret < 0 ? ret : -EIO;
-+    }
-+    return 0;
-+}
-+
- static int paw32xx_configure(const struct device *dev) {
-     const struct paw32xx_config *cfg = dev->config;
-     uint8_t val;
-@@ -564,10 +664,27 @@ static int paw32xx_configure(const struct device *dev) {
-     k_sleep(K_MSEC(RESET_DELAY_MS));
+@@ -591,8 +564,6 @@ static int paw32xx_init(const struct device *dev) {
+     data->dev = dev;
  
-     if (cfg->res_cpi > 0) {
--        paw32xx_set_resolution(dev, cfg->res_cpi);
-+        ret = paw32xx_set_resolution(dev, cfg->res_cpi);
-+        if (ret < 0) {
-+            return ret;
-+        }
-     }
+     k_work_init(&data->motion_work, paw32xx_motion_work_handler);
+-    // Initialize the timer for delayed motion checks
+-    k_timer_init(&data->motion_timer, paw32xx_motion_timer_handler, NULL);
  
--    paw32xx_force_awake(dev, cfg->force_awake);
-+    ret = paw32xx_enable_12bit_mode(dev);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    ret = paw32xx_force_awake(dev, cfg->force_awake);
-+    if (ret < 0) {
-+        return ret;
-+    }
-+
-+    ret = paw32xx_verify_configuration(dev);
-+    if (ret < 0) {
-+        LOG_ERR("PAW3222 configuration readback failed: %d", ret);
-+        return ret;
-+    }
- 
-     // Dummy reads to clear any residual data
-     paw32xx_read_reg(dev, PAW32XX_MOTION, &val);
+ #if DT_INST_NODE_HAS_PROP(0, power_gpios)
+     // Initialize power GPIO if defined
