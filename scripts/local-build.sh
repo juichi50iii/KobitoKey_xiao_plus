@@ -33,16 +33,17 @@ docker run --rm \
       west init -l /workspace/config
     fi
 
-    west update --fetch-opt=--filter=tree:0
-
-    # The persistent Docker workspace may still contain patches from an older
-    # experiment. Restore tracked files from their own reversible diff before
-    # applying the patches selected by this build.
+    # Drop any leftover working-tree edits from an older experiment BEFORE
+    # west update. Modified files block the checkout when an upstream
+    # revision has moved on, which fails the whole build.
     for repo in /workspace/zmk /workspace/zmk-driver-paw3222; do
-      if ! git -C "$repo" diff --quiet; then
-        git -C "$repo" diff --binary | git -C "$repo" apply --reverse
+      if [ -d "$repo/.git" ]; then
+        git -C "$repo" checkout -- .
+        git -C "$repo" clean -fd >/dev/null
       fi
     done
+
+    west update --fetch-opt=--filter=tree:0
 
     # Skipped (2026-08-13): comparison with the PMW3610-based build showed
     # it uses stock ZMK mouse-report send (K_MSEC(100) blocking, discard
@@ -60,20 +61,9 @@ docker run --rm \
     #   exit 1
     # fi
 
-    paw_patch=/workspace/config/patches/zmk-driver-paw3222-late-init.patch
-    if git -C /workspace/zmk-driver-paw3222 apply --check "$paw_patch"; then
-      git -C /workspace/zmk-driver-paw3222 apply "$paw_patch"
-    elif ! git -C /workspace/zmk-driver-paw3222 apply --reverse --check "$paw_patch"; then
-      echo "PAW3222 late-init patch does not apply cleanly" >&2
-      exit 1
-    fi
-    motion_patch=/workspace/config/patches/zmk-driver-paw3222-motion-stability.patch
-    if git -C /workspace/zmk-driver-paw3222 apply --recount --check "$motion_patch"; then
-      git -C /workspace/zmk-driver-paw3222 apply --recount "$motion_patch"
-    elif ! git -C /workspace/zmk-driver-paw3222 apply --recount --reverse --check "$motion_patch"; then
-      echo "PAW3222 motion-stability patch does not apply cleanly" >&2
-      exit 1
-    fi
+    # No PAW3222 patches are applied here any more: everything that used to
+    # live in config/patches has landed in the driver repo itself, which
+    # west.yml already tracks (revision: main).
     west zephyr-export
 
     build_one() {
