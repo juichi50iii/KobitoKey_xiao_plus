@@ -27,17 +27,12 @@ manifest:
     # LED
     - name: zmk-rgbled-widget
       remote: juichi50iii
-      revision: v0.3
+      revision: 1c008eb4484cbfd8bc3bb9d9b8ae0f8523483409
 
     #　Axis-lock
     - name: zmk-axis-lock
       remote: juichi50iii
       revision: main
-
-    # nurunuru
-    - name: zmk-scroll-nurunuru
-      remote: juichi50iii
-      revision: 8940b3af0547811c9d30682700dbf3cb14a5b762
 
   self:
     path: config
