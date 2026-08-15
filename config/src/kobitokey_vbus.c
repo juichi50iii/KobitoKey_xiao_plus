@@ -10,6 +10,10 @@
 
 #include <kobitokey_vbus.h>
 
+#if defined(CONFIG_RGBLED_WIDGET) && defined(CONFIG_ZMK_BATTERY_REPORTING)
+#include <zmk_rgbled_widget/widget.h>
+#endif
+
 LOG_MODULE_REGISTER(kobitokey_vbus, LOG_LEVEL_INF);
 
 #define VBUS_NODE DT_NODELABEL(vbus_sense)
@@ -48,6 +52,16 @@ void kobitokey_vbus_set_callback(kobitokey_vbus_callback_t callback)
     state_change_callback = callback;
 }
 
+int kobitokey_vbus_arm_change_wake(void)
+{
+    const bool connected = kobitokey_vbus_is_connected();
+
+    /* DT logical levels account for the active-high/low declaration. */
+    return gpio_pin_interrupt_configure_dt(
+        &vbus_gpio,
+        connected ? GPIO_INT_LEVEL_INACTIVE : GPIO_INT_LEVEL_ACTIVE);
+}
+
 static void vbus_change_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
@@ -68,6 +82,10 @@ static void vbus_change_work_handler(struct k_work *work)
 
     if (current_vbus_state) {
         LOG_INF("VBUS connected");
+#if defined(CONFIG_RGBLED_WIDGET) && defined(CONFIG_ZMK_BATTERY_REPORTING)
+        /* C -> D: USB insertion while open shows the battery level. */
+        indicate_battery();
+#endif
     } else {
         LOG_INF("VBUS disconnected");
     }
@@ -149,7 +167,8 @@ static int kobitokey_vbus_init(void)
     return 0;
 }
 
-SYS_INIT(kobitokey_vbus_init, APPLICATION, 80);
+/* Run after GPIO/device initialization, before ZMK application services. */
+SYS_INIT(kobitokey_vbus_init, POST_KERNEL, 94);
 
 #else
 
@@ -166,6 +185,11 @@ bool kobitokey_vbus_is_connected(void)
 void kobitokey_vbus_set_callback(kobitokey_vbus_callback_t callback)
 {
     ARG_UNUSED(callback);
+}
+
+int kobitokey_vbus_arm_change_wake(void)
+{
+    return -ENOTSUP;
 }
 
 #endif

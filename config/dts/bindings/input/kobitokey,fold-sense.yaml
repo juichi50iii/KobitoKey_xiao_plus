@@ -1,0 +1,9 @@
+description: KobitoKey fold-state input
+
+compatible: "kobitokey,fold-sense"
+
+properties:
+  gpios:
+    type: phandle-array
+    required: true
+    description: GPIO connected to the level-shifted Hall sensor output

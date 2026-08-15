@@ -34,6 +34,13 @@ bool kobitokey_vbus_is_connected(void);
  */
 void kobitokey_vbus_set_callback(kobitokey_vbus_callback_t callback);
 
+/**
+ * @brief Arm the opposite VBUS level as a System OFF wake source.
+ *
+ * Connected wakes on disconnect; disconnected wakes on connect.
+ */
+int kobitokey_vbus_arm_change_wake(void);
+
 #ifdef __cplusplus
 }
 #endif

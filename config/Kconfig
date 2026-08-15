@@ -55,6 +55,21 @@ config KOBITOKEY_HAPTIC_BOOT_GAP2_MS
 endmenu
 
 
+menu "KobitoKey Fold Sense"
+
+config KOBITOKEY_FOLD_SENSE
+    bool "KobitoKey fold-state detection and power-off support"
+    default n
+
+config KOBITOKEY_FOLD_DEBOUNCE_MS
+    int "Fold-state debounce time in milliseconds"
+    default 30
+    range 1 1000
+    depends on KOBITOKEY_FOLD_SENSE
+
+endmenu
+
+
 
 menu "KobitoKey VBUS Sense"
 

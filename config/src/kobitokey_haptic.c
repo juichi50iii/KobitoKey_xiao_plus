@@ -46,6 +46,7 @@ static int64_t last_haptic_time;
 static struct k_work_delayable haptic_off_work;
 static struct k_work_delayable haptic_boot_work;
 static struct k_work_delayable haptic_usb_boot_work;
+static bool haptic_initialized;
 
 
 static void haptic_on(void)
@@ -107,6 +108,31 @@ void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
 void kobitokey_haptic_pulse(void)
 {
     kobitokey_haptic_pulse_ms(HAPTIC_PULSE_MS);
+}
+
+
+void kobitokey_haptic_usb_acknowledge(void)
+{
+    /* Used before normal application threads start on a closed USB boot. */
+    nrf_gpio_cfg_output(HAPTIC_PIN);
+    haptic_on();
+    k_busy_wait(HAPTIC_USB_PULSE_MS * 1000U);
+    haptic_off();
+    last_haptic_time = k_uptime_get();
+}
+
+
+void kobitokey_haptic_shutdown(void)
+{
+    if (haptic_initialized) {
+        k_work_cancel_delayable(&haptic_boot_work);
+        k_work_cancel_delayable(&haptic_usb_boot_work);
+        k_work_cancel_delayable(&haptic_off_work);
+    }
+
+    /* Configure explicitly so this is also safe before haptic_init(). */
+    nrf_gpio_cfg_output(HAPTIC_PIN);
+    haptic_off();
 }
 
 
@@ -211,8 +237,6 @@ INPUT_CALLBACK_DEFINE(NULL, kobitokey_haptic_local_input_cb);
 
 static int haptic_init(void)
 {
-    bool usb_connected = false;
-
     nrf_gpio_cfg_output(HAPTIC_PIN);
     haptic_off();
 
@@ -228,30 +252,17 @@ static int haptic_init(void)
         &haptic_usb_boot_work,
         haptic_usb_boot_work_handler);
 
-#if defined(CONFIG_KOBITOKEY_VBUS_SENSE)
-    usb_connected = kobitokey_vbus_is_connected();
+    haptic_initialized = true;
 
+#if defined(CONFIG_KOBITOKEY_VBUS_SENSE)
     kobitokey_vbus_set_callback(
         kobitokey_haptic_vbus_changed);
 #endif
 
-    if (usb_connected) {
-        /*
-         * USB接続状態で起動。
-         * 通常ブート振動は行わず、短い充電通知だけ行う。
-         */
-        k_work_reschedule(
-            &haptic_usb_boot_work,
-            K_MSEC(HAPTIC_BOOT_DELAY_MS));
-    } else {
-        /*
-         * バッテリー起動。
-         * 従来どおり通常のブート振動を行う。
-         */
-        k_work_reschedule(
-            &haptic_boot_work,
-            K_MSEC(HAPTIC_BOOT_DELAY_MS));
-    }
+    /* A -> C and B -> D are both opening events: always use three pulses. */
+    k_work_reschedule(
+        &haptic_boot_work,
+        K_MSEC(HAPTIC_BOOT_DELAY_MS));
 
     return 0;
 }

@@ -1,19 +1,25 @@
 #include <stdbool.h>
 
-#include "kobitokey_vbus.h"
+#if defined(CONFIG_KOBITOKEY_FOLD_SENSE)
+#include "kobitokey_fold.h"
+#endif
 
 /*
  * Override the weak hook provided by the forked
  * zmk-rgbled-widget module.
  *
- * Battery boot:
- *   Show the initial Bluetooth/connectivity indication as usual.
+ * Open:
+ *   Show the initial Bluetooth/connectivity indication as usual, including
+ *   when USB was already connected before the keyboard was opened.
  *
- * USB boot:
- *   Skip the initial connectivity indication.
- *   The initial battery-level indication is still shown.
+ * Closed:
+ *   Suppress the connectivity indication while the fold handler powers down.
  */
 bool rgbled_widget_show_initial_connectivity(void)
 {
-    return !kobitokey_vbus_is_connected();
+#if defined(CONFIG_KOBITOKEY_FOLD_SENSE)
+    return !kobitokey_fold_is_closed();
+#else
+    return true;
+#endif
 }
