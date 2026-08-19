@@ -427,69 +427,74 @@ static uint8_t fold_confirm_count;
 #define FOLD_DIAG_RED  BIT(0)
 #define FOLD_DIAG_BLUE BIT(2)
 
-#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED) && \
-    DT_HAS_COMPAT_STATUS_OKAY(gpio_leds)
+#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED)
 /*
- * Shows every closed reading taken while the lid is open, so the cause can
- * be watched instead of guessed at. The colour says which explanation the
- * reading fits:
+ * Latches on the first closed reading taken while the lid is open, and
+ * stays lit until the half is restarted. The colour says which explanation
+ * the reading fits:
  *
- *   red  -- read closed while the motor was in use. The motor is disturbing
- *           the sensor, and the settle time above is the thing to lengthen.
- *   blue -- read closed with the motor already still for FOLD_HAPTIC_SETTLE_MS.
- *           Nothing was shaking it, so the sensor is reporting closed on its
- *           own, and no amount of firmware will fix that.
+ *   red     -- read closed while the motor was in use, so the motor is
+ *              disturbing the sensor and the settle time is what to raise.
+ *   blue    -- read closed with the motor already still for the settle
+ *              time, so nothing was shaking it and the sensor is reporting
+ *              closed on its own.
+ *   magenta -- both have happened since boot.
  *
- * A genuine close shows blue and then powers off, which is expected. What
- * matters is what appears while the keyboard is open and in use.
+ * An earlier version flashed for 90ms instead, which left two ways to see
+ * nothing when something had in fact happened: the flash could be missed,
+ * and the widget drives these same LEDs for battery and layer state, so it
+ * could paint over the flash before it was seen. Neither can hide a latch
+ * that is re-asserted several times a second for as long as the half is
+ * awake -- so nothing lit now means nothing was detected, which is what
+ * makes the absence of a signal worth anything as evidence.
+ *
+ * Written straight to the pin registers rather than through the LED driver.
+ * That skips the device-ready check the flash version could quietly fail,
+ * and it is also how it wins against the widget: last writer takes the pin.
+ *
+ * A genuine close latches blue and then powers off, taking the LED with it,
+ * so it leaves nothing behind to misread. What matters is anything lit
+ * while the keyboard is open and in use.
+ *
+ * The motor is deliberately not used to signal: driving it would shake the
+ * very sensor being measured.
  */
-#define FOLD_DIAG_LED_MS 90
+#define FOLD_DIAG_REASSERT_MS 200
 
-static struct k_work_delayable fold_diag_led_work;
+static uint8_t fold_diag_latched;
+static struct k_work_delayable fold_diag_hold_work;
 
-static const uint8_t fold_diag_led_indices[] = {
-    DT_NODE_CHILD_IDX(DT_ALIAS(led_red)),
-    DT_NODE_CHILD_IDX(DT_ALIAS(led_green)),
-    DT_NODE_CHILD_IDX(DT_ALIAS(led_blue)),
-};
-
-static void fold_diag_led_off_handler(struct k_work *work)
+static void fold_diag_hold_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
-    const struct device *const led_dev =
-        DEVICE_DT_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(gpio_leds));
-
-    if (!device_is_ready(led_dev)) {
+    if (fold_diag_latched == 0U) {
         return;
     }
 
-    for (uint8_t pos = 0; pos < ARRAY_SIZE(fold_diag_led_indices); pos++) {
-        led_off(led_dev, fold_diag_led_indices[pos]);
-    }
+    fold_early_leds_set(fold_diag_latched);
+
+    k_work_reschedule(&fold_diag_hold_work, K_MSEC(FOLD_DIAG_REASSERT_MS));
 }
 
-static void fold_diag_led_flash(uint8_t color)
+static void fold_diag_latch(uint8_t color)
 {
-    const struct device *const led_dev =
-        DEVICE_DT_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(gpio_leds));
-
-    if (!device_is_ready(led_dev)) {
+    if ((fold_diag_latched & color) == color) {
+        /* Already showing this one; the re-assert loop is running. */
         return;
     }
 
-    for (uint8_t pos = 0; pos < ARRAY_SIZE(fold_diag_led_indices); pos++) {
-        if ((color & BIT(pos)) != 0) {
-            led_on(led_dev, fold_diag_led_indices[pos]);
-        } else {
-            led_off(led_dev, fold_diag_led_indices[pos]);
-        }
-    }
+    fold_diag_latched |= color;
 
-    k_work_reschedule(&fold_diag_led_work, K_MSEC(FOLD_DIAG_LED_MS));
+    LOG_WRN("Fold read closed with the lid open; latching diagnostic 0x%02x",
+            fold_diag_latched);
+
+    fold_early_leds_set(fold_diag_latched);
+
+    k_work_reschedule(&fold_diag_hold_work, K_MSEC(FOLD_DIAG_REASSERT_MS));
 }
 #else
-static inline void fold_diag_led_flash(uint8_t color) { ARG_UNUSED(color); }
+static inline void fold_diag_latch(uint8_t color) { ARG_UNUSED(color); }
 #endif
 
 static void fold_change_work_handler(struct k_work *work)
@@ -504,7 +509,7 @@ static void fold_change_work_handler(struct k_work *work)
 #if IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC)
     if (!kobitokey_haptic_quiet_for_ms(FOLD_HAPTIC_SETTLE_MS)) {
         LOG_DBG("Fold reads closed while the motor is in use; deferring");
-        fold_diag_led_flash(FOLD_DIAG_RED);
+        fold_diag_latch(FOLD_DIAG_RED);
 
         /* Start the count over: the samples taken so far were of a sensor
          * being shaken, and carrying them forward would let a long scroll
@@ -520,7 +525,7 @@ static void fold_change_work_handler(struct k_work *work)
 
     if (fold_confirm_count == 0) {
         /* First sample of a run, with the motor already still. */
-        fold_diag_led_flash(FOLD_DIAG_BLUE);
+        fold_diag_latch(FOLD_DIAG_BLUE);
     }
 
     if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
@@ -580,9 +585,8 @@ static int kobitokey_fold_init(void)
     }
 
     k_work_init_delayable(&fold_change_work, fold_change_work_handler);
-#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED) && \
-    DT_HAS_COMPAT_STATUS_OKAY(gpio_leds)
-    k_work_init_delayable(&fold_diag_led_work, fold_diag_led_off_handler);
+#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED)
+    k_work_init_delayable(&fold_diag_hold_work, fold_diag_hold_handler);
 #endif
 
     gpio_init_callback(

@@ -68,16 +68,24 @@ config KOBITOKEY_FOLD_DEBOUNCE_MS
     depends on KOBITOKEY_FOLD_SENSE
 
 config KOBITOKEY_FOLD_DIAG_LED
-    bool "Flash the RGB LED on every closed fold reading"
+    bool "Latch the RGB LED on a closed fold reading with the lid open"
     default n
     depends on KOBITOKEY_FOLD_SENSE && RGBLED_WIDGET
     help
       Diagnostic aid for a half that switches itself off during use.
-      Every closed reading taken while the lid is open is shown: red
-      when the haptic motor was in use at the time, blue when it had
-      already been still. Red points at the motor disturbing the
-      sensor; blue means the sensor reports closed unprompted, which
-      is a hardware matter rather than a firmware one.
+      The first closed reading taken while the lid is open lights the
+      LED and keeps it lit until the half restarts: red if the haptic
+      motor was in use at the time, blue if it had already been still,
+      magenta if both have happened.
+
+      Red points at the motor disturbing the sensor, which the settle
+      time can be raised to cover. Blue means the sensor reports
+      closed with nothing shaking it, which is a hardware matter that
+      no firmware change will reach.
+
+      It latches rather than blinks so that seeing nothing is itself
+      evidence: a blink can be missed, or painted over by the widget
+      driving the same LEDs.
 
       Leave this off for normal builds.
 
