@@ -158,7 +158,7 @@
  * unconditionally.
  *
  * Chain: the swap mapper to match the sensor's mounting orientation,
- * axis lock to keep a scroll from drifting sideways, and 1/12 scaling on
+ * axis lock to keep a scroll from drifting sideways, and 1/15 scaling on
  * both axes before the mapper turns the movement into wheel events. No Y
  * inversion: without it the ball scrolls the way round that reads as
  * natural here.
@@ -175,8 +175,8 @@
 
     input-processors =
         <&zip_xy_swap_mapper>,
-        <&zip_x_scaler 1 12>,
-        <&zip_y_scaler 1 12>,
+        <&zip_x_scaler 1 15>,
+        <&zip_y_scaler 1 15>,
         <&axis_lock>,
         <&zip_xy_to_scroll_mapper>;
 };
