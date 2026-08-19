@@ -372,17 +372,63 @@ static void fold_power_off(void)
     CODE_UNREACHABLE;
 }
 
+/*
+ * A closed reading has to survive this many checks, this far apart, before
+ * the half is allowed to switch itself off.
+ *
+ * The debounce alone was not enough. It takes one sample once the line has
+ * settled, so anything holding the pin closed for that single moment powers
+ * the half off, and this half has a vibration motor a short distance from a
+ * magnetic sensor. Every scroll pulse drives an eccentric weight -- a moving
+ * magnet in its own right, and a source of enough shake to vary the gap the
+ * sensor is reading across. That was switching the left half off mid-use,
+ * which looks exactly like the link dropping except that it never comes back
+ * on its own.
+ *
+ * Sampling repeatedly over a window separates the two cases without needing
+ * to know which of the motor's two effects is responsible: a real lid stays
+ * shut, while a disturbance from a 7ms pulse does not survive being looked
+ * at again a few times. Any single open reading abandons the attempt, so the
+ * bias is towards staying on -- failing to power off wastes some charge and
+ * is obvious, where powering off in error loses the half mid-sentence.
+ *
+ * The cost is that closing the lid takes about a quarter second longer to
+ * take effect, which is not perceptible when the lid is already shut.
+ */
+#define FOLD_CONFIRM_SAMPLES 5
+#define FOLD_CONFIRM_INTERVAL_MS 40
+
+static uint8_t fold_confirm_count;
+
 static void fold_change_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
-    if (kobitokey_fold_is_closed()) {
-        if (kobitokey_vbus_is_connected()) {
-            /* D -> B: suppress closed-USB feedback on the resulting boot. */
-            fold_mark_usb_runtime_close();
-        }
-        fold_power_off();
+    if (!kobitokey_fold_is_closed()) {
+        fold_confirm_count = 0;
+        return;
     }
+
+    if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
+        /* Rescheduled rather than slept through: this runs on the system
+         * workqueue, and stalling that for the length of the window would
+         * hold up everything else queued behind it. */
+        k_work_reschedule(
+            &fold_change_work,
+            K_MSEC(FOLD_CONFIRM_INTERVAL_MS));
+        return;
+    }
+
+    LOG_INF("Fold confirmed closed over %d samples",
+            FOLD_CONFIRM_SAMPLES);
+
+    fold_confirm_count = 0;
+
+    if (kobitokey_vbus_is_connected()) {
+        /* D -> B: suppress closed-USB feedback on the resulting boot. */
+        fold_mark_usb_runtime_close();
+    }
+    fold_power_off();
 }
 
 static void fold_gpio_interrupt_handler(
@@ -393,6 +439,10 @@ static void fold_gpio_interrupt_handler(
     ARG_UNUSED(device);
     ARG_UNUSED(callback);
     ARG_UNUSED(pins);
+
+    /* A fresh edge means the state moved again, so any confirmation in
+     * progress is about the previous state and starts over. */
+    fold_confirm_count = 0;
 
     k_work_reschedule(
         &fold_change_work,
