@@ -104,10 +104,17 @@
         compatible = "zmk,input-processor-axis-lock";
         #input-processor-cells = <0>;
 
-        activation-threshold = <1>;
-        force-lock-threshold = <20>;
-        dominance-per-mille = <3000>;
-        release-ms = <75>;
+        /* Bias towards the direction of travel without ever taking the
+         * other axis away, so a stroke runs straight but can still be
+         * steered. dominance 2000 leaves genuinely diagonal movement
+         * untouched; off-axis 250 damps wobble to a quarter rather than
+         * removing it; break 12 gives the axis up as soon as a turn is
+         * clearly deliberate. */
+        activation-threshold = <2>;
+        dominance-per-mille = <2000>;
+        off-axis-per-mille = <250>;
+        break-threshold = <12>;
+        release-ms = <120>;
     };
 
 };
