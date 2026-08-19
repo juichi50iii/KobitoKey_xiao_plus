@@ -424,6 +424,74 @@ static void fold_power_off(void)
 
 static uint8_t fold_confirm_count;
 
+#define FOLD_DIAG_RED  BIT(0)
+#define FOLD_DIAG_BLUE BIT(2)
+
+#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED) && \
+    DT_HAS_COMPAT_STATUS_OKAY(gpio_leds)
+/*
+ * Shows every closed reading taken while the lid is open, so the cause can
+ * be watched instead of guessed at. The colour says which explanation the
+ * reading fits:
+ *
+ *   red  -- read closed while the motor was in use. The motor is disturbing
+ *           the sensor, and the settle time above is the thing to lengthen.
+ *   blue -- read closed with the motor already still for FOLD_HAPTIC_SETTLE_MS.
+ *           Nothing was shaking it, so the sensor is reporting closed on its
+ *           own, and no amount of firmware will fix that.
+ *
+ * A genuine close shows blue and then powers off, which is expected. What
+ * matters is what appears while the keyboard is open and in use.
+ */
+#define FOLD_DIAG_LED_MS 90
+
+static struct k_work_delayable fold_diag_led_work;
+
+static const uint8_t fold_diag_led_indices[] = {
+    DT_NODE_CHILD_IDX(DT_ALIAS(led_red)),
+    DT_NODE_CHILD_IDX(DT_ALIAS(led_green)),
+    DT_NODE_CHILD_IDX(DT_ALIAS(led_blue)),
+};
+
+static void fold_diag_led_off_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    const struct device *const led_dev =
+        DEVICE_DT_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(gpio_leds));
+
+    if (!device_is_ready(led_dev)) {
+        return;
+    }
+
+    for (uint8_t pos = 0; pos < ARRAY_SIZE(fold_diag_led_indices); pos++) {
+        led_off(led_dev, fold_diag_led_indices[pos]);
+    }
+}
+
+static void fold_diag_led_flash(uint8_t color)
+{
+    const struct device *const led_dev =
+        DEVICE_DT_GET(DT_COMPAT_GET_ANY_STATUS_OKAY(gpio_leds));
+
+    if (!device_is_ready(led_dev)) {
+        return;
+    }
+
+    for (uint8_t pos = 0; pos < ARRAY_SIZE(fold_diag_led_indices); pos++) {
+        if ((color & BIT(pos)) != 0) {
+            led_on(led_dev, fold_diag_led_indices[pos]);
+        } else {
+            led_off(led_dev, fold_diag_led_indices[pos]);
+        }
+    }
+
+    k_work_reschedule(&fold_diag_led_work, K_MSEC(FOLD_DIAG_LED_MS));
+}
+#else
+static inline void fold_diag_led_flash(uint8_t color) { ARG_UNUSED(color); }
+#endif
+
 static void fold_change_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
@@ -435,6 +503,9 @@ static void fold_change_work_handler(struct k_work *work)
 
 #if IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC)
     if (!kobitokey_haptic_quiet_for_ms(FOLD_HAPTIC_SETTLE_MS)) {
+        LOG_DBG("Fold reads closed while the motor is in use; deferring");
+        fold_diag_led_flash(FOLD_DIAG_RED);
+
         /* Start the count over: the samples taken so far were of a sensor
          * being shaken, and carrying them forward would let a long scroll
          * accumulate its way to a power-off. */
@@ -446,6 +517,11 @@ static void fold_change_work_handler(struct k_work *work)
         return;
     }
 #endif
+
+    if (fold_confirm_count == 0) {
+        /* First sample of a run, with the motor already still. */
+        fold_diag_led_flash(FOLD_DIAG_BLUE);
+    }
 
     if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
         /* Rescheduled rather than slept through: this runs on the system
@@ -504,6 +580,10 @@ static int kobitokey_fold_init(void)
     }
 
     k_work_init_delayable(&fold_change_work, fold_change_work_handler);
+#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED) && \
+    DT_HAS_COMPAT_STATUS_OKAY(gpio_leds)
+    k_work_init_delayable(&fold_diag_led_work, fold_diag_led_off_handler);
+#endif
 
     gpio_init_callback(
         &fold_gpio_callback,

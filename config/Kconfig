@@ -67,6 +67,20 @@ config KOBITOKEY_FOLD_DEBOUNCE_MS
     range 1 1000
     depends on KOBITOKEY_FOLD_SENSE
 
+config KOBITOKEY_FOLD_DIAG_LED
+    bool "Flash the RGB LED on every closed fold reading"
+    default n
+    depends on KOBITOKEY_FOLD_SENSE && RGBLED_WIDGET
+    help
+      Diagnostic aid for a half that switches itself off during use.
+      Every closed reading taken while the lid is open is shown: red
+      when the haptic motor was in use at the time, blue when it had
+      already been still. Red points at the motor disturbing the
+      sensor; blue means the sensor reports closed unprompted, which
+      is a hardware matter rather than a firmware one.
+
+      Leave this off for normal builds.
+
 endmenu
 
 
