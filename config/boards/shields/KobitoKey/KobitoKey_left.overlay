@@ -35,6 +35,12 @@
         reg = <0>;
         spi-max-frequency = <2000000>;
         irq-gpios = <&gpio0 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+        /* Same as the right half. Without this the driver skips the CPI
+         * register entirely and the sensor runs at whatever it powers up
+         * with, which is why the two balls felt unalike. 760 = 20 * 38,
+         * an exactly representable value for this sensor's 38-count
+         * step. */
+        res-cpi = <760>;
         rotation-angle = <(-23)>;
     };
 };
