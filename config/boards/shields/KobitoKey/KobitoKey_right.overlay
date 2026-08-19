@@ -100,6 +100,22 @@
         // max_pending_activations = <10>
     };
 
+    /* Speed-dependent gain for the right ball's cursor. Slow movement
+     * passes at 1.0 so aiming keeps the sensor's own precision; a flick
+     * is stretched up to 2.5x so the pointer can cross the screen
+     * without turning the ball repeatedly. The thresholds are in input
+     * counts per second at 760 cpi. */
+    pointer_accel: pointer_accel {
+        compatible = "zmk,input-processor-accel";
+        #input-processor-cells = <0>;
+
+        slow-speed = <600>;
+        fast-speed = <4000>;
+        slow-gain = <1000>;
+        fast-gain = <2500>;
+        idle-ms = <120>;
+    };
+
     axis_lock: axis_lock {
         compatible = "zmk,input-processor-axis-lock";
         #input-processor-cells = <0>;
@@ -126,7 +142,8 @@
     input-processors =
         <&zip_temp_layer 3 5000>,
         <&zip_xy_swap_mapper>,
-        <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>;
+        <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
+        <&pointer_accel>;
 
 
     scroll {
