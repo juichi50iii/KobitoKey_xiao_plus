@@ -101,18 +101,24 @@
     };
 
     /* Speed-dependent gain for the right ball's cursor. Slow movement
-     * passes at 1.0 so aiming keeps the sensor's own precision; a flick
-     * is stretched up to 2.5x so the pointer can cross the screen
-     * without turning the ball repeatedly. The thresholds are in input
-     * counts per second at 760 cpi. */
+     * passes at 1.0 so aiming keeps the sensor's own precision; a hard
+     * flick is stretched to 3.0x so the pointer can cross the screen
+     * without turning the ball repeatedly. Thresholds are in input
+     * counts per second at 760 cpi.
+     *
+     * The exponent is what stops it running away early: at 3, gain is
+     * still only about 1.1x a third of the way up the range, so brisk
+     * movement stays honest and the pull only arrives when the ball is
+     * genuinely thrown. slow-speed sits at 900 for the same reason. */
     pointer_accel: pointer_accel {
         compatible = "zmk,input-processor-accel";
         #input-processor-cells = <0>;
 
-        slow-speed = <600>;
-        fast-speed = <4000>;
+        slow-speed = <900>;
+        fast-speed = <5000>;
         slow-gain = <1000>;
-        fast-gain = <2500>;
+        fast-gain = <3000>;
+        curve-exponent = <3>;
         idle-ms = <120>;
     };
 
