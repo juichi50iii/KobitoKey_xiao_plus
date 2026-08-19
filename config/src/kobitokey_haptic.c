@@ -111,6 +111,17 @@ void kobitokey_haptic_pulse(void)
 }
 
 
+bool kobitokey_haptic_quiet_for_ms(uint32_t quiet_ms)
+{
+    if (last_haptic_time == 0) {
+        /* Never pulsed since boot. */
+        return true;
+    }
+
+    return (k_uptime_get() - last_haptic_time) >= (int64_t)quiet_ms;
+}
+
+
 void kobitokey_haptic_usb_acknowledge(void)
 {
     /* Used before normal application threads start on a closed USB boot. */

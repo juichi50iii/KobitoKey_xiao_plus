@@ -398,6 +398,30 @@ static void fold_power_off(void)
 #define FOLD_CONFIRM_SAMPLES 5
 #define FOLD_CONFIRM_INTERVAL_MS 40
 
+/*
+ * How long the motor has to have been left alone before a closed reading is
+ * worth acting on, and how often to look again while it has not been.
+ *
+ * Sampling repeatedly was not enough on its own. It assumed the disturbance
+ * was the 7ms drive pulse, so that looking again a few times would fall
+ * outside it. During a scroll that assumption does not hold: the pulses come
+ * about ten times a second and the weight carries on turning between them,
+ * so the board is disturbed continuously for as long as the ball is moving,
+ * and every sample in the window lands inside it. Widening the window does
+ * not help, because the disturbance lasts exactly as long as the scrolling
+ * does.
+ *
+ * So the question to ask is not how the reading looks but whether it can be
+ * believed at all. While the motor is in use the fold sensor is not a
+ * trustworthy input, and no amount of reading it changes that. Waiting for
+ * the motor to be still costs nothing in practice: closing the lid means
+ * taking a hand off the ball, so the motor falls quiet on its own well
+ * inside the settle time, and the power-off follows a fraction of a second
+ * later.
+ */
+#define FOLD_HAPTIC_SETTLE_MS 400
+#define FOLD_HAPTIC_RECHECK_MS 150
+
 static uint8_t fold_confirm_count;
 
 static void fold_change_work_handler(struct k_work *work)
@@ -408,6 +432,20 @@ static void fold_change_work_handler(struct k_work *work)
         fold_confirm_count = 0;
         return;
     }
+
+#if IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC)
+    if (!kobitokey_haptic_quiet_for_ms(FOLD_HAPTIC_SETTLE_MS)) {
+        /* Start the count over: the samples taken so far were of a sensor
+         * being shaken, and carrying them forward would let a long scroll
+         * accumulate its way to a power-off. */
+        fold_confirm_count = 0;
+
+        k_work_reschedule(
+            &fold_change_work,
+            K_MSEC(FOLD_HAPTIC_RECHECK_MS));
+        return;
+    }
+#endif
 
     if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
         /* Rescheduled rather than slept through: this runs on the system
