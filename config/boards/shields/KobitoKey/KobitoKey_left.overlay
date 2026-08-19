@@ -41,7 +41,7 @@
          * an exactly representable value for this sensor's 38-count
          * step. */
         res-cpi = <760>;
-        rotation-angle = <(-23)>;
+        rotation-angle = <(-25)>;
     };
 };
 
