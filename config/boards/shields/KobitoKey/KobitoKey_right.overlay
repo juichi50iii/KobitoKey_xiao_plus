@@ -118,7 +118,6 @@
 
     input-processors =
         <&zip_temp_layer 3 5000>,
-        <&zip_xy_swap_mapper>,
         <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>;
 
 
@@ -158,15 +157,17 @@
  * unconditionally.
  *
  * Same treatment as the right half's own scroll layer, so both feel
- * alike: axis lock to keep a scroll from drifting sideways, haptic ticks
- * while it moves, and 1/8 scaling before the mapper turns the movement
- * into wheel events.
+ * alike: the swap mapper to match the sensor's mounting orientation,
+ * axis lock to keep a scroll from drifting sideways, haptic ticks while
+ * it moves, and 1/8 scaling on both axes before the mapper turns the
+ * movement into wheel events.
  */
 &tb_left_listener {
     status = "okay";
     device = <&tb_left_split>;
 
     input-processors =
+        <&zip_xy_swap_mapper>,
         <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
         <&zip_x_scaler 1 8>,
         <&zip_y_scaler 1 8>,
