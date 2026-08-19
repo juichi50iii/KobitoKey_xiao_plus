@@ -44,6 +44,20 @@
         compatible = "kobitokey,haptic-local-input";
         status = "okay";
     };
+
+    /* Same wiring as the right half, so charging and lid behaviour match. */
+    vbus_sense: vbus_sense {
+        compatible = "kobitokey,vbus-sense";
+        status = "okay";
+        gpios = <&gpio0 15 GPIO_ACTIVE_HIGH>;
+    };
+
+    fold_sense: fold_sense {
+        compatible = "kobitokey,fold-sense";
+        status = "okay";
+        /* D12 / P0.19: Q2 makes HIGH=closed and LOW=open. */
+        gpios = <&gpio0 19 GPIO_ACTIVE_HIGH>;
+    };
 };
 
 &tb_left_split {
