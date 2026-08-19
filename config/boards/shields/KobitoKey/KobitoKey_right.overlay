@@ -166,8 +166,9 @@
  *
  * Chain: the swap mapper to match the sensor's mounting orientation,
  * axis lock to keep a scroll from drifting sideways, and 1/15 scaling on
- * both axes before the mapper turns the movement into wheel events.
- * Neither axis is inverted; both already run the natural way round.
+ * both axes before the mapper turns the movement into wheel events. X
+ * is inverted so sideways scrolling runs the natural way round; Y is
+ * left alone, since it already does.
  *
  * Deliberately no haptic processor. That one runs on the central half and
  * would buzz the right-hand motor for movement of the left-hand ball,
@@ -181,6 +182,7 @@
 
     input-processors =
         <&zip_xy_swap_mapper>,
+        <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
         <&zip_x_scaler 1 15>,
         <&zip_y_scaler 1 15>,
         <&axis_lock>,
