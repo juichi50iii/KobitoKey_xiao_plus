@@ -114,11 +114,11 @@
         compatible = "zmk,input-processor-accel";
         #input-processor-cells = <0>;
 
-        slow-speed = <900>;
-        fast-speed = <5000>;
+        slow-speed = <1200>;
+        fast-speed = <5500>;
         slow-gain = <1000>;
-        fast-gain = <3000>;
-        curve-exponent = <3>;
+        fast-gain = <3200>;
+        curve-exponent = <4>;
         idle-ms = <120>;
     };
 
@@ -154,10 +154,10 @@
 
     scroll {
         layers = <4>;
+        /* No inversions: macOS natural scrolling is off, so the
+         * un-inverted direction is the one that matches. */
         input-processors =
             <&zip_xy_swap_mapper>,
-            <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
-            <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
             <&zip_x_scaler 1 8>,
             <&zip_y_scaler 1 8>,
             <&axis_lock>,
@@ -190,7 +190,7 @@
  * Chain: the swap mapper to match the sensor's mounting orientation,
  * axis lock to keep a scroll from drifting sideways, and 1/8 scaling on
  * both axes before the mapper turns the movement into wheel events.
- * Neither axis is inverted; both already run the natural way round.
+ * Both axes are inverted, to match macOS with natural scrolling off.
  *
  * Deliberately no haptic processor. That one runs on the central half and
  * would buzz the right-hand motor for movement of the left-hand ball,
@@ -204,6 +204,8 @@
 
     input-processors =
         <&zip_xy_swap_mapper>,
+        <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
+        <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
         <&zip_x_scaler 1 8>,
         <&zip_y_scaler 1 8>,
         <&axis_lock>,
