@@ -6,5 +6,6 @@ zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HAPTIC src/input_processor_haptic_
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_VBUS_SENSE src/kobitokey_vbus.c)
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_VBUS_SENSE src/kobitokey_rgbled_hook.c)
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_FOLD_SENSE src/kobitokey_fold.c)
+zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HEALTH src/kobitokey_health.c)
 
 zephyr_include_directories(${APPLICATION_SOURCE_DIR}/include)

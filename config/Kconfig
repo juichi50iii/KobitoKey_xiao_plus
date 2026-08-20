@@ -111,3 +111,41 @@ config KOBITOKEY_VBUS_DEBOUNCE_MS
     depends on KOBITOKEY_VBUS_SENSE
 
 endmenu
+
+menu "KobitoKey Health"
+
+config KOBITOKEY_HEALTH
+    bool "Report the boot cause and recover from a hang"
+    default n
+    select WATCHDOG
+    help
+      Reads RESETREAS at startup and shows the previous boot cause on
+      the RGB LED, then arms a watchdog so a hung half resets itself
+      instead of sitting dead until it is power cycled.
+
+      Colours: red watchdog (it hung), green System OFF wake, blue
+      reset pin, cyan software reset, magenta lockup, yellow the core
+      lost power (brownout or a supply fault).
+
+      Lights on every boot, so an indicator that never appears means
+      the indicator is broken rather than the fault being absent.
+
+config KOBITOKEY_HEALTH_SHOW_MS
+    int "How long to hold the boot-cause colour, in milliseconds"
+    default 3000
+    range 200 20000
+    depends on KOBITOKEY_HEALTH
+
+config KOBITOKEY_HEALTH_WDT_MS
+    int "Watchdog timeout in milliseconds"
+    default 8000
+    range 1000 60000
+    depends on KOBITOKEY_HEALTH
+
+config KOBITOKEY_HEALTH_FEED_MS
+    int "How often to feed the watchdog, in milliseconds"
+    default 2000
+    range 100 30000
+    depends on KOBITOKEY_HEALTH
+
+endmenu
