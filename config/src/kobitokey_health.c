@@ -148,9 +148,18 @@ static void health_blink_work_handler(struct k_work *work)
             return;
         }
 
-        /* End of a round. */
+        /*
+         * A round has finished. The count for the next one is loaded here,
+         * along with taking one off the rounds remaining -- both in the same
+         * place, because separating them is what made this repeat forever.
+         * The count was reloaded here while the decrement lived in a branch
+         * that only ran when the count had reached zero, which reloading it
+         * guaranteed it never would.
+         */
         if (health_rounds_left > 0U) {
+            health_rounds_left--;
             health_blinks_left = health_code;
+
             k_work_reschedule(&health_blink_work,
                               K_MSEC(CONFIG_KOBITOKEY_HEALTH_GAP_MS));
         }
@@ -160,13 +169,8 @@ static void health_blink_work_handler(struct k_work *work)
     }
 
     if (health_blinks_left == 0U) {
-        /* Start of a round. */
-        if (health_rounds_left == 0U) {
-            return;
-        }
-
-        health_rounds_left--;
-        health_blinks_left = health_code;
+        /* Nothing left to show. */
+        return;
     }
 
     health_blinks_left--;
@@ -285,8 +289,9 @@ static int kobitokey_health_init(void)
     LOG_INF("Boot cause RESETREAS=0x%08x -> %u blink(s)",
             reasons, health_code);
 
-    health_rounds_left = CONFIG_KOBITOKEY_HEALTH_ROUNDS;
-    health_blinks_left = 0U;
+    /* The first round is loaded here, so the counter holds the repeats. */
+    health_rounds_left = CONFIG_KOBITOKEY_HEALTH_ROUNDS - 1;
+    health_blinks_left = health_code;
     health_lit = false;
 
     /*

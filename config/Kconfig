@@ -152,19 +152,19 @@ config KOBITOKEY_HEALTH_ROUNDS
 
 config KOBITOKEY_HEALTH_BLINK_ON_MS
     int "Blink on time, in milliseconds"
-    default 200
+    default 250
     range 40 2000
     depends on KOBITOKEY_HEALTH
 
 config KOBITOKEY_HEALTH_BLINK_OFF_MS
     int "Gap between blinks within a round, in milliseconds"
-    default 250
+    default 300
     range 40 2000
     depends on KOBITOKEY_HEALTH
 
 config KOBITOKEY_HEALTH_GAP_MS
     int "Gap between rounds, in milliseconds"
-    default 1500
+    default 2500
     range 200 10000
     depends on KOBITOKEY_HEALTH
 
