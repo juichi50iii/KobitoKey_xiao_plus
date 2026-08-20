@@ -166,9 +166,16 @@
         layers = <4>;
         /* No inversions: macOS natural scrolling is off, so the
          * un-inverted direction is the one that matches. */
+        /* Horizontal is scaled down harder than vertical. The swap mapper
+         * runs before these, and the scroll mapper after sends REL_X to the
+         * horizontal wheel, so zip_x_scaler is the sideways one.
+         *
+         * Vertical is what scrolling is mostly for; sideways is occasional,
+         * and the sideways movement that is not wanted outnumbers the kind
+         * that is. Making it ask for more ball travel makes it deliberate. */
         input-processors =
             <&zip_xy_swap_mapper>,
-            <&zip_x_scaler 1 8>,
+            <&zip_x_scaler 1 15>,
             <&zip_y_scaler 1 8>,
             <&axis_lock>,
             <&haptic_right>,
@@ -216,7 +223,7 @@
         <&zip_xy_swap_mapper>,
         <&zip_xy_transform INPUT_TRANSFORM_X_INVERT>,
         <&zip_xy_transform INPUT_TRANSFORM_Y_INVERT>,
-        <&zip_x_scaler 1 8>,
+        <&zip_x_scaler 1 15>,
         <&zip_y_scaler 1 8>,
         <&axis_lock>,
         <&zip_xy_to_scroll_mapper>;
