@@ -123,17 +123,49 @@ config KOBITOKEY_HEALTH
       the RGB LED, then arms a watchdog so a hung half resets itself
       instead of sitting dead until it is power cycled.
 
-      Colours: red watchdog (it hung), green System OFF wake, blue
-      reset pin, cyan software reset, magenta lockup, yellow the core
-      lost power (brownout or a supply fault).
+      The cause is blinked in white, counted: 1 watchdog (it hung),
+      2 the core lost power, 3 System OFF wake, 4 reset pin, 5 software
+      reset, 6 lockup.
 
-      Lights on every boot, so an indicator that never appears means
-      the indicator is broken rather than the fault being absent.
+      White because nothing else on this board asks for all three
+      channels at once, and counted because a count can be read without
+      knowing a colour vocabulary. Shown after a delay so it does not
+      share the LEDs with the widget's own boot display.
 
-config KOBITOKEY_HEALTH_SHOW_MS
-    int "How long to hold the boot-cause colour, in milliseconds"
-    default 3000
-    range 200 20000
+      Runs on every boot, so an indicator that never appears means the
+      indicator is broken rather than the fault being absent.
+
+config KOBITOKEY_HEALTH_DELAY_MS
+    int "Wait before blinking the boot cause, in milliseconds"
+    default 8000
+    range 500 60000
+    depends on KOBITOKEY_HEALTH
+    help
+      Long enough for the RGB widget to finish showing battery level
+      and connection state, so the two never overlap.
+
+config KOBITOKEY_HEALTH_ROUNDS
+    int "How many times to repeat the blink pattern"
+    default 3
+    range 1 10
+    depends on KOBITOKEY_HEALTH
+
+config KOBITOKEY_HEALTH_BLINK_ON_MS
+    int "Blink on time, in milliseconds"
+    default 200
+    range 40 2000
+    depends on KOBITOKEY_HEALTH
+
+config KOBITOKEY_HEALTH_BLINK_OFF_MS
+    int "Gap between blinks within a round, in milliseconds"
+    default 250
+    range 40 2000
+    depends on KOBITOKEY_HEALTH
+
+config KOBITOKEY_HEALTH_GAP_MS
+    int "Gap between rounds, in milliseconds"
+    default 1500
+    range 200 10000
     depends on KOBITOKEY_HEALTH
 
 config KOBITOKEY_HEALTH_WDT_MS
