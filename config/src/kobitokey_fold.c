@@ -43,6 +43,24 @@ LOG_MODULE_REGISTER(kobitokey_fold, LOG_LEVEL_INF);
 #define FOLD_USB_COLOR_MASK (0x7U << FOLD_USB_COLOR_SHIFT)
 #define FOLD_USB_FLAG_COLOR_VALID BIT(5)
 
+/*
+ * Set just before the boot-time check switches the half back off, and read
+ * on the boot after that.
+ *
+ * That check cannot report anything itself: it powers the half down within
+ * microseconds of deciding, so an LED lit there is never seen. Leaving a
+ * mark in a register that survives System OFF moves the report to the next
+ * boot that stays awake -- which is the one the user is present for, since
+ * reviving the half is what they just did.
+ *
+ * This is the difference between knowing which of the two power-off sites
+ * ran and guessing at it. The runtime site has been instrumented for a
+ * while and has never once lit its indicator, which leaves this one, but
+ * "the other one must have done it" is an inference and this is a
+ * measurement.
+ */
+#define FOLD_FLAG_BOOT_POWEROFF BIT(6)
+
 /* Adafruit/Seeed UF2 bootloader: skip DFU checks on a System OFF wake. */
 #define FOLD_BOOTLOADER_GPREGRET_REG 0U
 #define FOLD_BOOTLOADER_DFU_MAGIC_SKIP 0x6DU
@@ -74,6 +92,17 @@ static void fold_usb_state_set(uint8_t flags)
         fold_usb_state_get() & (FOLD_USB_COLOR_MASK | FOLD_USB_FLAG_COLOR_VALID);
 
     nrf_power_gpregret_set(NRF_POWER, FOLD_USB_STATE_REG, retained | flags);
+}
+
+/*
+ * OR-ed into whatever is already there, and set last, because
+ * fold_usb_state_set() keeps only the colour bits and would drop this.
+ */
+static void fold_mark_boot_poweroff(void)
+{
+    nrf_power_gpregret_set(
+        NRF_POWER, FOLD_USB_STATE_REG,
+        fold_usb_state_get() | FOLD_FLAG_BOOT_POWEROFF);
 }
 
 static void fold_mark_usb_runtime_close(void)
@@ -232,8 +261,13 @@ static void fold_early_leds_set(uint8_t color)
 
 static int kobitokey_fold_early_usb_ack_start(void)
 {
-    nrf_gpio_cfg_input(FOLD_FAST_PIN, NRF_GPIO_PIN_NOPULL);
+    /* Pulled down to match the devicetree bias: with nothing holding this
+     * line, the level it drifts to is the one that means "shut". */
+    nrf_gpio_cfg_input(FOLD_FAST_PIN, NRF_GPIO_PIN_PULLDOWN);
     nrf_gpio_cfg_input(VBUS_FAST_PIN, NRF_GPIO_PIN_NOPULL);
+
+    /* Let the pull take effect before reading through it. */
+    nrfx_coredep_delay_us(50);
 
     if (nrf_gpio_pin_read(FOLD_FAST_PIN) == 0) {
         return 0; /* Open: normal boot, nothing to acknowledge. */
@@ -424,8 +458,9 @@ static void fold_power_off(void)
 
 static uint8_t fold_confirm_count;
 
-#define FOLD_DIAG_RED  BIT(0)
-#define FOLD_DIAG_BLUE BIT(2)
+#define FOLD_DIAG_RED   BIT(0)
+#define FOLD_DIAG_GREEN BIT(1)
+#define FOLD_DIAG_BLUE  BIT(2)
 
 #if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED)
 /*
@@ -550,6 +585,36 @@ static void fold_change_work_handler(struct k_work *work)
     fold_power_off();
 }
 
+/*
+ * The boot-time equivalent of the confirmation the runtime path does.
+ *
+ * A single reading was enough to switch the half off for good, with no
+ * second look and nothing written down. Any reason the line is briefly high
+ * as the half comes up -- a supply still settling, an input with no bias on
+ * it -- reads exactly like a shut lid, and the half goes straight back to
+ * sleep on the strength of one sample.
+ *
+ * Busy-waited rather than slept: this runs during system initialisation,
+ * and the wait is short and happens only when the first reading says closed,
+ * which is either a real close about to power off anyway or the fault being
+ * chased.
+ */
+static bool fold_closed_confirmed_at_boot(void)
+{
+    for (uint8_t i = 0; i < FOLD_CONFIRM_SAMPLES; i++) {
+        if (!kobitokey_fold_is_closed()) {
+            LOG_INF("Boot fold reading did not hold; staying awake");
+            return false;
+        }
+
+        if (i + 1 < FOLD_CONFIRM_SAMPLES) {
+            k_busy_wait(FOLD_CONFIRM_INTERVAL_MS * 1000U);
+        }
+    }
+
+    return true;
+}
+
 static void fold_gpio_interrupt_handler(
     const struct device *device,
     struct gpio_callback *callback,
@@ -609,7 +674,7 @@ static int kobitokey_fold_init(void)
 
     usb_state = fold_usb_state_get();
 
-    if (kobitokey_fold_is_closed()) {
+    if (fold_closed_confirmed_at_boot()) {
         if (kobitokey_vbus_is_connected()) {
             const bool suppress_closed_usb_feedback =
                 (usb_state & (FOLD_USB_FLAG_RUNTIME_CLOSE |
@@ -632,10 +697,12 @@ static int kobitokey_fold_init(void)
 
             /* Keep suppressing resets/bounce until a real VBUS-low boot. */
             fold_usb_state_set(FOLD_USB_FLAG_SESSION_NOTIFIED);
+            fold_mark_boot_poweroff();
             fold_power_off();
         } else {
             /* B -> A: a genuine unplug ends the notification session. */
             fold_usb_state_set(0U);
+            fold_mark_boot_poweroff();
             /* The Hall sensor is battery-powered and already stable. */
             fold_power_off();
         }
@@ -643,6 +710,14 @@ static int kobitokey_fold_init(void)
         /* Opening starts normal operation; no closed-USB session remains. */
         fold_usb_state_set(0U);
         LOG_INF("Keyboard open at boot");
+
+        if ((usb_state & FOLD_FLAG_BOOT_POWEROFF) != 0U) {
+            /* The previous session ended at the check above rather than in
+             * the runtime handler. Report it now that there is someone here
+             * to see it. */
+            LOG_WRN("Previous power-off came from the boot-time fold check");
+            fold_diag_latch(FOLD_DIAG_GREEN);
+        }
     }
 
     return 0;
