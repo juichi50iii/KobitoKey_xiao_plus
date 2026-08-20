@@ -64,18 +64,15 @@
         /*
          * D12 / P0.19: Q2 makes HIGH=closed and LOW=open.
          *
-         * Biased low, where it had no bias at all. An input with nothing
-         * holding it sits wherever stray charge leaves it, and on this line
-         * the undriven level is the one that means "shut" -- so a moment of
-         * float reads as a closed lid and switches the half off. The pull
-         * decides that question in the direction that keeps the half awake:
-         * powering off in error needs the hardware touched to undo, while
-         * failing to power off only costs some charge and is obvious.
-         *
-         * Harmless where Q2 drives the line, since it drives against a
-         * resistor either way.
+         * No internal bias, deliberately. A pull-down was tried here on the
+         * theory that the line floated, and the schematic says it does not:
+         * Q2 pulls it down when the lid is open and R7 pulls it up when Q2
+         * releases. R7 is 220k, though, and this part's internal pull-down
+         * is around 13k, so enabling one does not bias a floating line, it
+         * overrides R7 -- about 0.2V at the pin, read as open no matter
+         * where the lid is. Leave the bias to the board.
          */
-        gpios = <&gpio0 19 (GPIO_ACTIVE_HIGH | GPIO_PULL_DOWN)>;
+        gpios = <&gpio0 19 GPIO_ACTIVE_HIGH>;
     };
 };
 

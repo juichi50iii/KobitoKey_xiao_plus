@@ -261,13 +261,8 @@ static void fold_early_leds_set(uint8_t color)
 
 static int kobitokey_fold_early_usb_ack_start(void)
 {
-    /* Pulled down to match the devicetree bias: with nothing holding this
-     * line, the level it drifts to is the one that means "shut". */
-    nrf_gpio_cfg_input(FOLD_FAST_PIN, NRF_GPIO_PIN_PULLDOWN);
+    nrf_gpio_cfg_input(FOLD_FAST_PIN, NRF_GPIO_PIN_NOPULL);
     nrf_gpio_cfg_input(VBUS_FAST_PIN, NRF_GPIO_PIN_NOPULL);
-
-    /* Let the pull take effect before reading through it. */
-    nrfx_coredep_delay_us(50);
 
     if (nrf_gpio_pin_read(FOLD_FAST_PIN) == 0) {
         return 0; /* Open: normal boot, nothing to acknowledge. */
