@@ -123,23 +123,28 @@ config KOBITOKEY_HEALTH
       the RGB LED, then arms a watchdog so a hung half resets itself
       instead of sitting dead until it is power cycled.
 
-      The cause is blinked in white, counted: 1 watchdog (it hung),
-      2 the core lost power, 3 System OFF wake, 4 reset pin, 5 software
-      reset, 6 lockup.
+      RESETREAS is read and logged at every boot, and the watchdog
+      resets a half that stops feeding it rather than leaving it dead
+      until someone power cycles it.
 
-      White because nothing else on this board asks for all three
-      channels at once, and counted because a count can be read without
-      knowing a colour vocabulary. Shown after a delay so it does not
-      share the LEDs with the widget's own boot display.
+      KOBITOKEY_HEALTH_BLINK adds the visible half: the same cause
+      blinked out in white so it can be read without a console.
 
-      Runs on every boot, so an indicator that never appears means the
-      indicator is broken rather than the fault being absent.
+config KOBITOKEY_HEALTH_BLINK
+    bool "Blink the boot cause on the RGB LED"
+    default y
+    depends on KOBITOKEY_HEALTH && RGBLED_WIDGET
+    help
+      The diagnostic half of this. Turn it off once the fault it was
+      built to find is understood: the watchdog and the RESETREAS log
+      stay, so a hang still recovers on its own and still says why in
+      the log -- only the light on every boot goes away.
 
 config KOBITOKEY_HEALTH_DELAY_MS
     int "Wait before blinking the boot cause, in milliseconds"
     default 8000
     range 500 60000
-    depends on KOBITOKEY_HEALTH
+    depends on KOBITOKEY_HEALTH_BLINK
     help
       Long enough for the RGB widget to finish showing battery level
       and connection state, so the two never overlap.
@@ -148,25 +153,25 @@ config KOBITOKEY_HEALTH_ROUNDS
     int "How many times to repeat the blink pattern"
     default 3
     range 1 10
-    depends on KOBITOKEY_HEALTH
+    depends on KOBITOKEY_HEALTH_BLINK
 
 config KOBITOKEY_HEALTH_BLINK_ON_MS
     int "Blink on time, in milliseconds"
     default 250
     range 40 2000
-    depends on KOBITOKEY_HEALTH
+    depends on KOBITOKEY_HEALTH_BLINK
 
 config KOBITOKEY_HEALTH_BLINK_OFF_MS
     int "Gap between blinks within a round, in milliseconds"
     default 300
     range 40 2000
-    depends on KOBITOKEY_HEALTH
+    depends on KOBITOKEY_HEALTH_BLINK
 
 config KOBITOKEY_HEALTH_GAP_MS
     int "Gap between rounds, in milliseconds"
     default 2500
     range 200 10000
-    depends on KOBITOKEY_HEALTH
+    depends on KOBITOKEY_HEALTH_BLINK
 
 config KOBITOKEY_HEALTH_WDT_MS
     int "Watchdog timeout in milliseconds"

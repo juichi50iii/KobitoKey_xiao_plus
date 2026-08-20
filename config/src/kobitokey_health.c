@@ -78,6 +78,8 @@ LOG_MODULE_REGISTER(kobitokey_health, LOG_LEVEL_INF);
 #define HEALTH_WHITE 0x7U
 #define HEALTH_OFF   0x0U
 
+#if IS_ENABLED(CONFIG_KOBITOKEY_HEALTH_BLINK)
+
 /* Blink counts, in the order the causes are tested for. */
 #define HEALTH_CODE_WATCHDOG   1
 #define HEALTH_CODE_POWER_LOSS 2
@@ -210,6 +212,8 @@ static uint8_t health_code_for(uint32_t reasons)
     return HEALTH_CODE_POWER_LOSS;
 }
 
+#endif /* CONFIG_KOBITOKEY_HEALTH_BLINK */
+
 #if IS_ENABLED(CONFIG_WATCHDOG)
 #define HEALTH_WDT_NODE DT_NODELABEL(wdt0)
 
@@ -284,10 +288,12 @@ static int kobitokey_health_init(void)
      * the bits latch until written back. */
     nrf_power_resetreas_clear(NRF_POWER, reasons);
 
+    LOG_INF("Boot cause RESETREAS=0x%08x", reasons);
+
+#if IS_ENABLED(CONFIG_KOBITOKEY_HEALTH_BLINK)
     health_code = health_code_for(reasons);
 
-    LOG_INF("Boot cause RESETREAS=0x%08x -> %u blink(s)",
-            reasons, health_code);
+    LOG_INF("Boot cause blinks: %u", health_code);
 
     /* The first round is loaded here, so the counter holds the repeats. */
     health_rounds_left = CONFIG_KOBITOKEY_HEALTH_ROUNDS - 1;
@@ -301,6 +307,7 @@ static int kobitokey_health_init(void)
     k_work_init_delayable(&health_blink_work, health_blink_work_handler);
     k_work_reschedule(&health_blink_work,
                       K_MSEC(CONFIG_KOBITOKEY_HEALTH_DELAY_MS));
+#endif
 
     health_watchdog_start();
 
