@@ -43,23 +43,6 @@ LOG_MODULE_REGISTER(kobitokey_fold, LOG_LEVEL_INF);
 #define FOLD_USB_COLOR_MASK (0x7U << FOLD_USB_COLOR_SHIFT)
 #define FOLD_USB_FLAG_COLOR_VALID BIT(5)
 
-/*
- * Set just before the boot-time check switches the half back off, and read
- * on the boot after that.
- *
- * That check cannot report anything itself: it powers the half down within
- * microseconds of deciding, so an LED lit there is never seen. Leaving a
- * mark in a register that survives System OFF moves the report to the next
- * boot that stays awake -- which is the one the user is present for, since
- * reviving the half is what they just did.
- *
- * This is the difference between knowing which of the two power-off sites
- * ran and guessing at it. The runtime site has been instrumented for a
- * while and has never once lit its indicator, which leaves this one, but
- * "the other one must have done it" is an inference and this is a
- * measurement.
- */
-#define FOLD_FLAG_BOOT_POWEROFF BIT(6)
 
 /* Adafruit/Seeed UF2 bootloader: skip DFU checks on a System OFF wake. */
 #define FOLD_BOOTLOADER_GPREGRET_REG 0U
@@ -92,17 +75,6 @@ static void fold_usb_state_set(uint8_t flags)
         fold_usb_state_get() & (FOLD_USB_COLOR_MASK | FOLD_USB_FLAG_COLOR_VALID);
 
     nrf_power_gpregret_set(NRF_POWER, FOLD_USB_STATE_REG, retained | flags);
-}
-
-/*
- * OR-ed into whatever is already there, and set last, because
- * fold_usb_state_set() keeps only the colour bits and would drop this.
- */
-static void fold_mark_boot_poweroff(void)
-{
-    nrf_power_gpregret_set(
-        NRF_POWER, FOLD_USB_STATE_REG,
-        fold_usb_state_get() | FOLD_FLAG_BOOT_POWEROFF);
 }
 
 static void fold_mark_usb_runtime_close(void)
@@ -453,79 +425,7 @@ static void fold_power_off(void)
 
 static uint8_t fold_confirm_count;
 
-#define FOLD_DIAG_RED   BIT(0)
-#define FOLD_DIAG_GREEN BIT(1)
-#define FOLD_DIAG_BLUE  BIT(2)
 
-#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED)
-/*
- * Latches on the first closed reading taken while the lid is open, and
- * stays lit until the half is restarted. The colour says which explanation
- * the reading fits:
- *
- *   red     -- read closed while the motor was in use, so the motor is
- *              disturbing the sensor and the settle time is what to raise.
- *   blue    -- read closed with the motor already still for the settle
- *              time, so nothing was shaking it and the sensor is reporting
- *              closed on its own.
- *   magenta -- both have happened since boot.
- *
- * An earlier version flashed for 90ms instead, which left two ways to see
- * nothing when something had in fact happened: the flash could be missed,
- * and the widget drives these same LEDs for battery and layer state, so it
- * could paint over the flash before it was seen. Neither can hide a latch
- * that is re-asserted several times a second for as long as the half is
- * awake -- so nothing lit now means nothing was detected, which is what
- * makes the absence of a signal worth anything as evidence.
- *
- * Written straight to the pin registers rather than through the LED driver.
- * That skips the device-ready check the flash version could quietly fail,
- * and it is also how it wins against the widget: last writer takes the pin.
- *
- * A genuine close latches blue and then powers off, taking the LED with it,
- * so it leaves nothing behind to misread. What matters is anything lit
- * while the keyboard is open and in use.
- *
- * The motor is deliberately not used to signal: driving it would shake the
- * very sensor being measured.
- */
-#define FOLD_DIAG_REASSERT_MS 200
-
-static uint8_t fold_diag_latched;
-static struct k_work_delayable fold_diag_hold_work;
-
-static void fold_diag_hold_handler(struct k_work *work)
-{
-    ARG_UNUSED(work);
-
-    if (fold_diag_latched == 0U) {
-        return;
-    }
-
-    fold_early_leds_set(fold_diag_latched);
-
-    k_work_reschedule(&fold_diag_hold_work, K_MSEC(FOLD_DIAG_REASSERT_MS));
-}
-
-static void fold_diag_latch(uint8_t color)
-{
-    if ((fold_diag_latched & color) == color) {
-        /* Already showing this one; the re-assert loop is running. */
-        return;
-    }
-
-    fold_diag_latched |= color;
-
-    LOG_WRN("Fold read closed with the lid open; latching diagnostic 0x%02x",
-            fold_diag_latched);
-
-    fold_early_leds_set(fold_diag_latched);
-
-    k_work_reschedule(&fold_diag_hold_work, K_MSEC(FOLD_DIAG_REASSERT_MS));
-}
-#else
-static inline void fold_diag_latch(uint8_t color) { ARG_UNUSED(color); }
-#endif
 
 static void fold_change_work_handler(struct k_work *work)
 {
@@ -539,7 +439,6 @@ static void fold_change_work_handler(struct k_work *work)
 #if IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC)
     if (!kobitokey_haptic_quiet_for_ms(FOLD_HAPTIC_SETTLE_MS)) {
         LOG_DBG("Fold reads closed while the motor is in use; deferring");
-        fold_diag_latch(FOLD_DIAG_RED);
 
         /* Start the count over: the samples taken so far were of a sensor
          * being shaken, and carrying them forward would let a long scroll
@@ -552,11 +451,6 @@ static void fold_change_work_handler(struct k_work *work)
         return;
     }
 #endif
-
-    if (fold_confirm_count == 0) {
-        /* First sample of a run, with the motor already still. */
-        fold_diag_latch(FOLD_DIAG_BLUE);
-    }
 
     if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
         /* Rescheduled rather than slept through: this runs on the system
@@ -645,9 +539,6 @@ static int kobitokey_fold_init(void)
     }
 
     k_work_init_delayable(&fold_change_work, fold_change_work_handler);
-#if IS_ENABLED(CONFIG_KOBITOKEY_FOLD_DIAG_LED)
-    k_work_init_delayable(&fold_diag_hold_work, fold_diag_hold_handler);
-#endif
 
     gpio_init_callback(
         &fold_gpio_callback,
@@ -692,12 +583,10 @@ static int kobitokey_fold_init(void)
 
             /* Keep suppressing resets/bounce until a real VBUS-low boot. */
             fold_usb_state_set(FOLD_USB_FLAG_SESSION_NOTIFIED);
-            fold_mark_boot_poweroff();
             fold_power_off();
         } else {
             /* B -> A: a genuine unplug ends the notification session. */
             fold_usb_state_set(0U);
-            fold_mark_boot_poweroff();
             /* The Hall sensor is battery-powered and already stable. */
             fold_power_off();
         }
@@ -705,14 +594,6 @@ static int kobitokey_fold_init(void)
         /* Opening starts normal operation; no closed-USB session remains. */
         fold_usb_state_set(0U);
         LOG_INF("Keyboard open at boot");
-
-        if ((usb_state & FOLD_FLAG_BOOT_POWEROFF) != 0U) {
-            /* The previous session ended at the check above rather than in
-             * the runtime handler. Report it now that there is someone here
-             * to see it. */
-            LOG_WRN("Previous power-off came from the boot-time fold check");
-            fold_diag_latch(FOLD_DIAG_GREEN);
-        }
     }
 
     return 0;
