@@ -43,6 +43,14 @@
 
 static int64_t last_haptic_time;
 
+/*
+ * True from boot until the startup pattern has played out. The pattern owns
+ * the motor while it runs, so movement-driven pulses are dropped rather than
+ * interleaved with it -- two callers toggling one pin, each with its own
+ * idea of when it should stop, is how the pin gets left on.
+ */
+static bool haptic_boot_running;
+
 static struct k_work_delayable haptic_off_work;
 static struct k_work_delayable haptic_boot_work;
 static struct k_work_delayable haptic_usb_boot_work;
@@ -91,6 +99,10 @@ void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
 {
     const int64_t now = k_uptime_get();
 
+    if (haptic_boot_running) {
+        return;
+    }
+
     if (now - last_haptic_time < HAPTIC_COOLDOWN_MS) {
         return;
     }
@@ -135,6 +147,8 @@ void kobitokey_haptic_usb_acknowledge(void)
 
 void kobitokey_haptic_shutdown(void)
 {
+    haptic_boot_running = false;
+
     if (haptic_initialized) {
         k_work_cancel_delayable(&haptic_boot_work);
         k_work_cancel_delayable(&haptic_usb_boot_work);
@@ -156,27 +170,47 @@ void kobitokey_haptic_shutdown(void)
  * → GAP2
  * → 短い3回目
  */
+/*
+ * One step of the pattern per call, rescheduling itself for the next one.
+ *
+ * This used to run the whole sequence inline with k_sleep between the
+ * buzzes. A work handler that sleeps still owns the workqueue, so for the
+ * eight hundred milliseconds the pattern takes, nothing else queued behind
+ * it could run -- including the work that switches this same motor off.
+ * Touching the ball during boot therefore started a 7ms pulse whose ending
+ * was stuck in the queue, and the motor ran until the pattern finished. It
+ * was not a stronger buzz, it was a hundred times longer one.
+ */
+static const uint16_t haptic_boot_seq[] = {
+    HAPTIC_BOOT_LONG_MS,   /* on  */
+    HAPTIC_BOOT_GAP1_MS,   /* off */
+    HAPTIC_BOOT_SHORT_MS,  /* on  */
+    HAPTIC_BOOT_GAP2_MS,   /* off */
+    HAPTIC_BOOT_SHORT_MS,  /* on  */
+};
+
+static uint8_t haptic_boot_step;
+
 static void haptic_boot_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
-    haptic_on();
-    k_sleep(K_MSEC(HAPTIC_BOOT_LONG_MS));
-    haptic_off();
+    if (haptic_boot_step >= ARRAY_SIZE(haptic_boot_seq)) {
+        haptic_off();
+        haptic_boot_running = false;
+        last_haptic_time = k_uptime_get();
+        return;
+    }
 
-    k_sleep(K_MSEC(HAPTIC_BOOT_GAP1_MS));
+    /* Even steps drive the motor, odd steps are the gaps between. */
+    if ((haptic_boot_step % 2U) == 0U) {
+        haptic_on();
+    } else {
+        haptic_off();
+    }
 
-    haptic_on();
-    k_sleep(K_MSEC(HAPTIC_BOOT_SHORT_MS));
-    haptic_off();
-
-    k_sleep(K_MSEC(HAPTIC_BOOT_GAP2_MS));
-
-    haptic_on();
-    k_sleep(K_MSEC(HAPTIC_BOOT_SHORT_MS));
-    haptic_off();
-
-    last_haptic_time = k_uptime_get();
+    k_work_reschedule(&haptic_boot_work,
+                      K_MSEC(haptic_boot_seq[haptic_boot_step++]));
 }
 
 
@@ -270,7 +304,14 @@ static int haptic_init(void)
         kobitokey_haptic_vbus_changed);
 #endif
 
-    /* A -> C and B -> D are both opening events: always use three pulses. */
+    /* A -> C and B -> D are both opening events: always use three pulses.
+     *
+     * Marked as running from here rather than from the first buzz, so a ball
+     * touched during the delay before it does not start a pulse the pattern
+     * would then interrupt. */
+    haptic_boot_running = true;
+    haptic_boot_step = 0U;
+
     k_work_reschedule(
         &haptic_boot_work,
         K_MSEC(HAPTIC_BOOT_DELAY_MS));

@@ -397,7 +397,7 @@ static void fold_power_off(void)
  * take effect, which is not perceptible when the lid is already shut.
  */
 #define FOLD_CONFIRM_SAMPLES 5
-#define FOLD_CONFIRM_INTERVAL_MS 40
+#define FOLD_CONFIRM_INTERVAL_MS 25
 
 /*
  * How long the motor has to have been left alone before a closed reading is
@@ -414,14 +414,19 @@ static void fold_power_off(void)
  *
  * So the question to ask is not how the reading looks but whether it can be
  * believed at all. While the motor is in use the fold sensor is not a
- * trustworthy input, and no amount of reading it changes that. Waiting for
- * the motor to be still costs nothing in practice: closing the lid means
- * taking a hand off the ball, so the motor falls quiet on its own well
- * inside the settle time, and the power-off follows a fraction of a second
- * later.
+ * trustworthy input, and no amount of reading it changes that. Closing the
+ * lid means taking a hand off the ball, so the motor falls quiet on its own
+ * and the power-off follows shortly after.
+ *
+ * These were originally four times longer, from when this was thought to be
+ * what was killing the half mid-use. It was not -- the cause was in the
+ * sensor driver -- and the delay was long enough to notice the half staying
+ * awake after the lid was already shut. The eccentric weight coasts for well
+ * under a tenth of a second once it stops being driven, so the settle time
+ * only ever needed to cover that.
  */
-#define FOLD_HAPTIC_SETTLE_MS 400
-#define FOLD_HAPTIC_RECHECK_MS 150
+#define FOLD_HAPTIC_SETTLE_MS 150
+#define FOLD_HAPTIC_RECHECK_MS 60
 
 static uint8_t fold_confirm_count;
 
