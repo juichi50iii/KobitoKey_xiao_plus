@@ -23,7 +23,13 @@
 LOG_MODULE_REGISTER(kobitokey_fold, LOG_LEVEL_INF);
 
 #define FOLD_NODE DT_NODELABEL(fold_sense)
-#define TRACKBALL_NODE DT_NODELABEL(tb_right)
+/*
+ * Found by what it is rather than by name. This was DT_NODELABEL(tb_right),
+ * which exists on one half only -- so everything guarded by it, including
+ * powering the sensor down before System OFF, was quietly compiled out of
+ * the other half.
+ */
+#define FOLD_HAS_TRACKBALL DT_HAS_COMPAT_STATUS_OKAY(pixart_paw3222)
 
 /* Use GPREGRET2 so Zephyr/bootloader use of GPREGRET1 remains untouched. */
 #define FOLD_USB_STATE_REG 1U
@@ -293,22 +299,14 @@ static void fold_power_off(void)
 {
     int ret;
 
-#if DT_NODE_HAS_STATUS(TRACKBALL_NODE, okay)
     /*
      * Runtime D/C -> B/A: put PAW3222 into enhanced power-down before GPIO
-     * state is retained by System OFF. On a closed boot the delayed PAW3222
-     * initializer has not run yet, so device_is_ready() is false and no SPI
-     * transaction is attempted.
+     * state is retained by System OFF. Usually already done by the check
+     * above; this covers the paths that reach here without it. On a closed
+     * boot the delayed PAW3222 initializer has not run yet, so the device is
+     * not ready and no SPI transaction is attempted.
      */
-    const struct device *const trackball = DEVICE_DT_GET(TRACKBALL_NODE);
-
-    if (device_is_ready(trackball)) {
-        ret = pm_device_action_run(trackball, PM_DEVICE_ACTION_SUSPEND);
-        if (ret < 0 && ret != -EALREADY) {
-            LOG_ERR("Failed to suspend trackball: %d", ret);
-        }
-    }
-#endif
+    fold_trackball_suspend(true);
 
     /* Never retain an active motor output across nRF52840 System OFF. */
     kobitokey_haptic_shutdown();
@@ -404,14 +402,64 @@ static uint8_t fold_confirm_count;
 
 
 
+#if FOLD_HAS_TRACKBALL
+static bool fold_trackball_suspended;
+
+/*
+ * Stop the ball reporting the moment the lid starts to close, before the
+ * reading has been confirmed.
+ *
+ * Folding the keyboard rolls the ball, and the ball scrolls on every layer,
+ * so the screen kept moving through the whole confirmation window and for as
+ * long as the closing took. Suspending on the first closed reading cuts that
+ * off at once: the driver drops its interrupt and puts the sensor into
+ * power-down, so nothing is reported and nothing is buzzed.
+ *
+ * It is reversed if the reading does not hold, which costs one SPI exchange
+ * on a false alarm and keeps the confirmation honest -- the point of
+ * sampling several times is that a single reading may be wrong, and this
+ * must not quietly become a one-reading decision to stop tracking.
+ */
+static void fold_trackball_suspend(bool suspend)
+{
+    const struct device *const trackball = DEVICE_DT_GET_ANY(pixart_paw3222);
+
+    if (suspend == fold_trackball_suspended) {
+        return;
+    }
+
+    if (trackball == NULL || !device_is_ready(trackball)) {
+        return;
+    }
+
+    const int ret = pm_device_action_run(
+        trackball,
+        suspend ? PM_DEVICE_ACTION_SUSPEND : PM_DEVICE_ACTION_RESUME);
+
+    if (ret < 0 && ret != -EALREADY) {
+        LOG_ERR("Failed to %s trackball: %d", suspend ? "suspend" : "resume", ret);
+        return;
+    }
+
+    fold_trackball_suspended = suspend;
+}
+#else
+static inline void fold_trackball_suspend(bool suspend) { ARG_UNUSED(suspend); }
+#endif
+
 static void fold_change_work_handler(struct k_work *work)
 {
     ARG_UNUSED(work);
 
     if (!kobitokey_fold_is_closed()) {
+        /* Not shut after all: let the ball work again. */
+        fold_trackball_suspend(false);
         fold_confirm_count = 0;
         return;
     }
+
+    /* First sight of a closed lid stops the ball, ahead of the decision. */
+    fold_trackball_suspend(true);
 
     if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
         /* Rescheduled rather than slept through: this runs on the system
