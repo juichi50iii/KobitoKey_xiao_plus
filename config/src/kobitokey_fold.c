@@ -417,35 +417,6 @@ static void fold_power_off(void)
     CODE_UNREACHABLE;
 }
 
-/*
- * A closed reading has to survive this many checks, this far apart, before
- * the half is allowed to switch itself off.
- *
- * The debounce alone was not enough. It takes one sample once the line has
- * settled, so anything holding the pin closed for that single moment powers
- * the half off, and this half has a vibration motor a short distance from a
- * magnetic sensor. Every scroll pulse drives an eccentric weight -- a moving
- * magnet in its own right, and a source of enough shake to vary the gap the
- * sensor is reading across. That was switching the left half off mid-use,
- * which looks exactly like the link dropping except that it never comes back
- * on its own.
- *
- * Sampling repeatedly over a window separates the two cases without needing
- * to know which of the motor's two effects is responsible: a real lid stays
- * shut, while a disturbance from a 7ms pulse does not survive being looked
- * at again a few times. Any single open reading abandons the attempt, so the
- * bias is towards staying on -- failing to power off wastes some charge and
- * is obvious, where powering off in error loses the half mid-sentence.
- *
- * The cost is that closing the lid takes about a quarter second longer to
- * take effect, which is not perceptible when the lid is already shut.
- */
-#define FOLD_CONFIRM_SAMPLES 5
-#define FOLD_CONFIRM_INTERVAL_MS 25
-
-
-static uint8_t fold_confirm_count;
-
 
 
 static void fold_change_work_handler(struct k_work *work)
@@ -455,27 +426,25 @@ static void fold_change_work_handler(struct k_work *work)
     if (!kobitokey_fold_is_closed()) {
         /* Not shut after all: let the ball work again. */
         fold_trackball_suspend(false);
-        fold_confirm_count = 0;
         return;
     }
 
-    /* First sight of a closed lid stops the ball, ahead of the decision. */
+    /*
+     * Acted on straight away. This used to take five readings 25ms apart
+     * before it would believe the lid, which was added on the theory that a
+     * bad reading was switching the half off during use. That was wrong --
+     * the half was dying because of the sensor driver -- and the delay was
+     * long enough to feel, since the ball scrolls and the keyboard was still
+     * awake while it ran.
+     *
+     * What is left guarding against a single bad reading is the debounce on
+     * the interrupt, which is what it is for. If a spurious close ever does
+     * get through, it powers the half off until the lid is worked again, so
+     * this is the first place to look if that starts happening.
+     */
     fold_trackball_suspend(true);
 
-    if (++fold_confirm_count < FOLD_CONFIRM_SAMPLES) {
-        /* Rescheduled rather than slept through: this runs on the system
-         * workqueue, and stalling that for the length of the window would
-         * hold up everything else queued behind it. */
-        k_work_reschedule(
-            &fold_change_work,
-            K_MSEC(FOLD_CONFIRM_INTERVAL_MS));
-        return;
-    }
-
-    LOG_INF("Fold confirmed closed over %d samples",
-            FOLD_CONFIRM_SAMPLES);
-
-    fold_confirm_count = 0;
+    LOG_INF("Fold read closed; powering off");
 
     if (kobitokey_vbus_is_connected()) {
         /* D -> B: suppress closed-USB feedback on the resulting boot. */
@@ -483,6 +452,17 @@ static void fold_change_work_handler(struct k_work *work)
     }
     fold_power_off();
 }
+
+/*
+ * Only the boot check samples more than once; the runtime one acts on the
+ * first reading. The difference is what a wrong answer costs. During use a
+ * bad reading means a power-off the user can undo by working the lid. At
+ * boot it means the half switches straight back off, which looks exactly
+ * like it never woke up -- and it costs nothing to guard against, since an
+ * open lid leaves on the first sample without waiting at all.
+ */
+#define FOLD_CONFIRM_SAMPLES 5
+#define FOLD_CONFIRM_INTERVAL_MS 25
 
 /*
  * The boot-time equivalent of the confirmation the runtime path does.
@@ -522,10 +502,6 @@ static void fold_gpio_interrupt_handler(
     ARG_UNUSED(device);
     ARG_UNUSED(callback);
     ARG_UNUSED(pins);
-
-    /* A fresh edge means the state moved again, so any confirmation in
-     * progress is about the previous state and starts over. */
-    fold_confirm_count = 0;
 
     k_work_reschedule(
         &fold_change_work,
