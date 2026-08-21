@@ -295,6 +295,51 @@ bool kobitokey_fold_is_closed(void)
     return value != 0;
 }
 
+#if FOLD_HAS_TRACKBALL
+static bool fold_trackball_suspended;
+
+/*
+ * Stop the ball reporting the moment the lid starts to close, before the
+ * reading has been confirmed.
+ *
+ * Folding the keyboard rolls the ball, and the ball scrolls on every layer,
+ * so the screen kept moving through the whole confirmation window and for as
+ * long as the closing took. Suspending on the first closed reading cuts that
+ * off at once: the driver drops its interrupt and puts the sensor into
+ * power-down, so nothing is reported and nothing is buzzed.
+ *
+ * It is reversed if the reading does not hold, which costs one SPI exchange
+ * on a false alarm and keeps the confirmation honest -- the point of
+ * sampling several times is that a single reading may be wrong, and this
+ * must not quietly become a one-reading decision to stop tracking.
+ */
+static void fold_trackball_suspend(bool suspend)
+{
+    const struct device *const trackball = DEVICE_DT_GET_ANY(pixart_paw3222);
+
+    if (suspend == fold_trackball_suspended) {
+        return;
+    }
+
+    if (trackball == NULL || !device_is_ready(trackball)) {
+        return;
+    }
+
+    const int ret = pm_device_action_run(
+        trackball,
+        suspend ? PM_DEVICE_ACTION_SUSPEND : PM_DEVICE_ACTION_RESUME);
+
+    if (ret < 0 && ret != -EALREADY) {
+        LOG_ERR("Failed to %s trackball: %d", suspend ? "suspend" : "resume", ret);
+        return;
+    }
+
+    fold_trackball_suspended = suspend;
+}
+#else
+static inline void fold_trackball_suspend(bool suspend) { ARG_UNUSED(suspend); }
+#endif
+
 static void fold_power_off(void)
 {
     int ret;
@@ -401,51 +446,6 @@ static void fold_power_off(void)
 static uint8_t fold_confirm_count;
 
 
-
-#if FOLD_HAS_TRACKBALL
-static bool fold_trackball_suspended;
-
-/*
- * Stop the ball reporting the moment the lid starts to close, before the
- * reading has been confirmed.
- *
- * Folding the keyboard rolls the ball, and the ball scrolls on every layer,
- * so the screen kept moving through the whole confirmation window and for as
- * long as the closing took. Suspending on the first closed reading cuts that
- * off at once: the driver drops its interrupt and puts the sensor into
- * power-down, so nothing is reported and nothing is buzzed.
- *
- * It is reversed if the reading does not hold, which costs one SPI exchange
- * on a false alarm and keeps the confirmation honest -- the point of
- * sampling several times is that a single reading may be wrong, and this
- * must not quietly become a one-reading decision to stop tracking.
- */
-static void fold_trackball_suspend(bool suspend)
-{
-    const struct device *const trackball = DEVICE_DT_GET_ANY(pixart_paw3222);
-
-    if (suspend == fold_trackball_suspended) {
-        return;
-    }
-
-    if (trackball == NULL || !device_is_ready(trackball)) {
-        return;
-    }
-
-    const int ret = pm_device_action_run(
-        trackball,
-        suspend ? PM_DEVICE_ACTION_SUSPEND : PM_DEVICE_ACTION_RESUME);
-
-    if (ret < 0 && ret != -EALREADY) {
-        LOG_ERR("Failed to %s trackball: %d", suspend ? "suspend" : "resume", ret);
-        return;
-    }
-
-    fold_trackball_suspended = suspend;
-}
-#else
-static inline void fold_trackball_suspend(bool suspend) { ARG_UNUSED(suspend); }
-#endif
 
 static void fold_change_work_handler(struct k_work *work)
 {
