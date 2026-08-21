@@ -29,7 +29,8 @@ LOG_MODULE_REGISTER(kobitokey_fold, LOG_LEVEL_INF);
  * powering the sensor down before System OFF, was quietly compiled out of
  * the other half.
  */
-#define FOLD_HAS_TRACKBALL DT_HAS_COMPAT_STATUS_OKAY(pixart_paw3222)
+#define FOLD_HAS_TRACKBALL \
+    (DT_HAS_COMPAT_STATUS_OKAY(pixart_paw3222) && IS_ENABLED(CONFIG_PM_DEVICE))
 
 /* Use GPREGRET2 so Zephyr/bootloader use of GPREGRET1 remains untouched. */
 #define FOLD_USB_STATE_REG 1U
