@@ -58,7 +58,21 @@ static int64_t last_haptic_time;
  */
 static bool haptic_boot_running;
 
-static struct k_work_delayable haptic_off_work;
+/*
+ * A timer, not a work item.
+ *
+ * Switching the motor off is a single register write and needs nothing a
+ * workqueue provides -- and putting it on one made the pulse length depend
+ * on what else that queue was doing. The sensor driver samples from the
+ * system queue and can wait up to 20ms per report for room in the input
+ * queue, twice per report, so a 7ms pulse queued behind it stayed on for
+ * closer to fifty. That is what the occasional hard buzz was: not a
+ * different pulse, the same one held down.
+ *
+ * A timer expires from the clock interrupt, so the pulse is the length it
+ * was asked for no matter how busy the queue is.
+ */
+static struct k_timer haptic_off_timer;
 static struct k_work_delayable haptic_boot_work;
 static struct k_work_delayable haptic_usb_boot_work;
 static bool haptic_initialized;
@@ -76,10 +90,11 @@ static void haptic_off(void)
 }
 
 
-static void haptic_off_work_handler(struct k_work *work)
+static void haptic_off_timer_handler(struct k_timer *timer)
 {
-    ARG_UNUSED(work);
+    ARG_UNUSED(timer);
 
+    /* Runs in interrupt context; a direct register write is all it does. */
     haptic_off();
 }
 
@@ -96,9 +111,7 @@ static void haptic_force_pulse_ms(uint32_t duration_ms)
 
     haptic_on();
 
-    k_work_reschedule(
-        &haptic_off_work,
-        K_MSEC(duration_ms));
+    k_timer_start(&haptic_off_timer, K_MSEC(duration_ms), K_NO_WAIT);
 }
 
 
@@ -118,9 +131,7 @@ void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
 
     haptic_on();
 
-    k_work_reschedule(
-        &haptic_off_work,
-        K_MSEC(duration_ms));
+    k_timer_start(&haptic_off_timer, K_MSEC(duration_ms), K_NO_WAIT);
 }
 
 
@@ -159,7 +170,7 @@ void kobitokey_haptic_shutdown(void)
     if (haptic_initialized) {
         k_work_cancel_delayable(&haptic_boot_work);
         k_work_cancel_delayable(&haptic_usb_boot_work);
-        k_work_cancel_delayable(&haptic_off_work);
+        k_timer_stop(&haptic_off_timer);
     }
 
     /* Configure explicitly so this is also safe before haptic_init(). */
@@ -273,9 +284,7 @@ static int haptic_init(void)
     nrf_gpio_cfg_output(HAPTIC_PIN);
     haptic_off();
 
-    k_work_init_delayable(
-        &haptic_off_work,
-        haptic_off_work_handler);
+    k_timer_init(&haptic_off_timer, haptic_off_timer_handler, NULL);
 
     k_work_init_delayable(
         &haptic_boot_work,
