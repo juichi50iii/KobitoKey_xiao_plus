@@ -3,9 +3,9 @@ set -euo pipefail
 
 target="${1:-right}"
 case "$target" in
-  right|left|reset|all) ;;
+  right|left|reset|all|log) ;;
   *)
-    echo "Usage: $0 [right|left|reset|all]" >&2
+    echo "Usage: $0 [right|left|reset|all|log]" >&2
     exit 2
     ;;
 esac
@@ -70,11 +70,17 @@ docker run --rm \
       name="$1"
       shield="$2"
       snippet="${3:-}"
+      extra_conf="${4:-}"
       build_dir="/workspace/build/$name"
 
       cmake_args=("-DZMK_CONFIG=/workspace/config" "-DSHIELD=$shield")
       if [ -n "$snippet" ]; then
         cmake_args+=("-DSNIPPET=$snippet")
+      fi
+      # Kept out of the shield .conf on purpose: logging is a thing you turn
+      # on to answer a question, not something to carry in every build.
+      if [ -n "$extra_conf" ]; then
+        cmake_args+=("-DEXTRA_CONF_FILE=$extra_conf")
       fi
 
       west build -p always \
@@ -100,6 +106,16 @@ docker run --rm \
         build_one KobitoKey_right "KobitoKey_right rgbled_adapter" studio-rpc-usb-uart
         build_one KobitoKey_left "KobitoKey_left rgbled_adapter"
         build_one settings_reset settings_reset
+        ;;
+      log)
+        # zmk-usb-logging rather than studio-rpc-usb-uart: the two both want
+        # the USB CDC, and only one of them can have it. The logging snippet
+        # also brings the cdc-acm-uart node and the console assignment that
+        # CONFIG_ZMK_USB_LOGGING on its own does not.
+        build_one KobitoKey_right-logging "KobitoKey_right rgbled_adapter" \
+          zmk-usb-logging /workspace/config/logging.conf
+        build_one KobitoKey_left-logging "KobitoKey_left rgbled_adapter" \
+          zmk-usb-logging /workspace/config/logging.conf
         ;;
     esac
   '
