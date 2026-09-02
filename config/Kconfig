@@ -3,12 +3,12 @@ menu "KobitoKey Haptic"
 config KOBITOKEY_HAPTIC
     bool "KobitoKey haptic motor support"
     default y
-
-config KOBITOKEY_HAPTIC_PULSE_MS
-    int "KobitoKey haptic pulse duration in milliseconds"
-    default 25
-    range 1 2000
-    depends on KOBITOKEY_HAPTIC
+    depends on DT_HAS_KOBITOKEY_DRV2605L_ENABLED
+    select I2C
+    help
+      The motor now lives behind a DRV2605L on i2c1, so this is only
+      buildable where that node exists. Guarding it on the node keeps the
+      shieldless builds -- settings_reset among them -- compiling.
 
 config KOBITOKEY_HAPTIC_COOLDOWN_MS
     int "KobitoKey haptic cooldown in milliseconds"
@@ -16,21 +16,9 @@ config KOBITOKEY_HAPTIC_COOLDOWN_MS
     range 0 2000
     depends on KOBITOKEY_HAPTIC
 
-config KOBITOKEY_HAPTIC_USB_PULSE_MS
-    int "KobitoKey USB connection haptic duration in milliseconds"
-    default 20
-    range 1 2000
-    depends on KOBITOKEY_HAPTIC && KOBITOKEY_VBUS_SENSE
-
 config KOBITOKEY_HAPTIC_BOOT_DELAY_MS
     int "KobitoKey boot haptic delay in milliseconds"
     default 500
-    range 0 10000
-    depends on KOBITOKEY_HAPTIC
-
-config KOBITOKEY_HAPTIC_BOOT_LONG_MS
-    int "KobitoKey boot haptic long pulse duration in milliseconds"
-    default 20
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
@@ -40,20 +28,244 @@ config KOBITOKEY_HAPTIC_BOOT_GAP1_MS
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
-config KOBITOKEY_HAPTIC_BOOT_SHORT_MS
-    int "KobitoKey boot haptic short pulse duration in milliseconds"
-    default 20
-    range 0 10000
-    depends on KOBITOKEY_HAPTIC
-
 config KOBITOKEY_HAPTIC_BOOT_GAP2_MS
     int "KobitoKey boot haptic second gap in milliseconds"
     default 150
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
-endmenu
+# --- DRV2605L ---------------------------------------------------------
+#
+# The motor is now an LRA behind a DRV2605L rather than an ERM on a GPIO,
+# so a buzz is "play effect N" instead of "hold the pin high for N ms".
+# The chip ends the effect itself, which is why nothing here has to switch
+# the motor back off.
+#
+# Effect numbers are the DRV2605 immersion library, with LIBRARY = 6 (LRA).
+# A few useful ones: 1 strong click, 4 sharp click, 7 soft bump,
+# 10 double click, 24 sharp tick 1, 47 buzz 1.
 
+config KOBITOKEY_HAPTIC_EFFECT
+    int "Effect played for pointer movement"
+    default 24
+    range 1 123
+    depends on KOBITOKEY_HAPTIC
+
+config KOBITOKEY_HAPTIC_BOOT_EFFECT_LONG
+    int "Effect played first at boot"
+    default 47
+    range 1 123
+    depends on KOBITOKEY_HAPTIC
+
+config KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT
+    int "Effect played for the two short boot buzzes"
+    default 1
+    range 1 123
+    depends on KOBITOKEY_HAPTIC
+
+config KOBITOKEY_HAPTIC_USB_EFFECT
+    int "Effect played when USB is connected"
+    default 1
+    range 1 123
+    depends on KOBITOKEY_HAPTIC
+
+config KOBITOKEY_HAPTIC_RATED_VOLTAGE
+    int "DRV2605L RATED_VOLTAGE register value"
+    default 109
+    range 0 255
+    depends on KOBITOKEY_HAPTIC
+    help
+      Sets the steady-state drive level the closed loop aims for.
+
+      The datasheet gives the RMS voltage produced by a given register
+      value. An LRA is not driven for the whole period -- the driver stops
+      to listen to the back-EMF -- so the RMS comes out below the drive
+      amplitude by the square root of the fraction that is actually driven:
+
+        Vrms = 20.71mV * RATED_VOLTAGE * sqrt(1 - 1.5ms * f_LRA)
+
+      Going the other way, for the VLV041235L at 1.8 Vrms and 240 Hz:
+
+        RATED_VOLTAGE = 1.8 / (0.02071 * 0.8) = 109
+
+      This was 70 to begin with, from dividing where the equation
+      multiplies. The motor ran at about two thirds of the voltage it is
+      rated for, which is exactly what a weak buzz feels like.
+
+      Raising it past 109 drives the motor harder than its rating.
+
+config KOBITOKEY_HAPTIC_OD_CLAMP
+    int "DRV2605L OD_CLAMP register value"
+    default 175
+    range 0 255
+    depends on KOBITOKEY_HAPTIC
+    help
+      Ceiling on the drive voltage while overdriving.
+
+      This is not the steady-state level -- the loop regulates that to
+      RATED_VOLTAGE -- it is how hard the driver may hit the motor to get
+      it moving and to brake it again. That overdrive is where the crispness
+      of an LRA comes from, so clamping it close to the rated level takes
+      away the very thing the DRV2605L is for.
+
+      This is the knob for making everything stronger. A library click
+      lasts tens of milliseconds and barely reaches steady state, so most
+      of what the hand feels is the overdrive, not the rated level.
+
+      Set by ratio rather than from the datasheet equation: the constant
+      for the LRA form of that equation could not be read out of the
+      document with confidence. 147 was a third above RATED_VOLTAGE; 175
+      is roughly another fifth on top, reached by feel rather than by
+      calculation, which is worth knowing before trusting the number.
+
+      Raising it does not drive the motor past its rating in steady state
+      -- the loop still regulates to RATED_VOLTAGE -- it only lets the
+      driver hit harder on the way there and while braking.
+
+config KOBITOKEY_HAPTIC_BRAKE_FACTOR
+    int "FB_BRAKE_FACTOR (0-7)"
+    default 3
+    range 0 7
+    depends on KOBITOKEY_HAPTIC
+    help
+      0=1x 1=2x 2=3x 3=4x 4=6x 5=8x 6=16x 7=braking disabled.
+
+      How hard the driver reverses to stop the mass. This is where the
+      crispness of an LRA lives: the higher the factor, the shorter the
+      ring-out.
+
+      3 is 4x. 6 (16x) was tried and reverted -- not because it felt wrong
+      but because it was changed at the same time as the loop gain and
+      calibration started failing, so neither could be judged. Worth
+      trying again on its own.
+
+config KOBITOKEY_HAPTIC_LOOP_GAIN
+    int "LOOP_GAIN (0-3)"
+    default 1
+    range 0 3
+    depends on KOBITOKEY_HAPTIC
+    help
+      0=low 1=medium 2=high 3=very high. How aggressively the loop
+      corrects towards the rated voltage.
+
+      Medium, because it is what auto-calibration has actually succeeded
+      under on this hardware. Low was tried, taken from a configuration
+      that works for someone else with this motor, together with a 16x
+      brake factor: calibration then failed on three boots out of three.
+      That configuration assumes a 170 Hz actuator and this one does not
+      behave like one, so its other numbers do not carry over either.
+
+config KOBITOKEY_HAPTIC_DRIVE_TIME
+    int "DRV2605L DRIVE_TIME field (CONTROL1 bits 4:0)"
+    default 18
+    range 0 31
+    depends on KOBITOKEY_HAPTIC
+    help
+      How long the driver pushes before it stops to listen to the back-EMF.
+      It has to line up with half the LRA's period, and the auto-calibration
+      routine uses it as the starting point for finding resonance:
+
+        drive time = 0.5ms + DRIVE_TIME * 0.1ms
+
+      Measured rather than taken from the data sheet. The resonance
+      register was read five times while the motor was being driven and
+      returned period=46 every time, which is 4529us:
+
+        DRIVE_TIME = (4529/2 - 500) / 100 = 18
+
+      That is 220.79 Hz. The data sheet says 240 Hz and a configuration for
+      this motor from elsewhere assumes 170 Hz; neither matches this build.
+      Resonance moves with how the motor is mounted, so measuring beats
+      copying.
+
+      An earlier attempt read this register more than a second after
+      playback had ended and got 236 Hz once and 423-508 Hz on other boots.
+      The register is only meaningful while the loop is driving.
+
+config KOBITOKEY_HAPTIC_AUTO_CAL_TIME
+    int "DRV2605L AUTO_CAL_TIME (0-3)"
+    default 3
+    range 0 3
+    depends on KOBITOKEY_HAPTIC
+    help
+      How long auto-calibration is allowed to drive the motor while it
+      measures. 3 is the longest setting. Calibration happens once at boot,
+      so there is little to gain by hurrying it and something to lose: a
+      short window is one of the ways it fails to reach maximum back-EMF.
+
+config KOBITOKEY_HAPTIC_AUTOCAL
+    bool "Run DRV2605L auto-calibration at boot"
+    default y
+    depends on KOBITOKEY_HAPTIC
+    help
+      Measures the motor and sets the compensation, back-EMF and gain
+      registers. Takes well under a second and makes a short buzz of its
+      own. The results are logged; once they are known and stable they can
+      be written in directly and this turned off.
+
+config KOBITOKEY_HAPTIC_CAL_COMP
+    int "A_CAL_COMP written before any calibration"
+    default 12
+    range 0 255
+    depends on KOBITOKEY_HAPTIC
+
+config KOBITOKEY_HAPTIC_CAL_BEMF
+    int "A_CAL_BEMF written before any calibration"
+    default 109
+    range 0 255
+    depends on KOBITOKEY_HAPTIC
+
+config KOBITOKEY_HAPTIC_CAL_BEMF_GAIN
+    int "BEMF_GAIN (0-3) written before any calibration"
+    default 2
+    range 0 3
+    depends on KOBITOKEY_HAPTIC
+    help
+      These three are the starting point every time the chip is brought
+      up, and the only tuning the closed-lid USB buzz gets -- that path has
+      no time for auto-calibration. Boot once with KOBITOKEY_HAPTIC_AUTOCAL
+      on, read the "Haptic calibrated" line out of the log, and copy the
+      numbers here.
+
+config KOBITOKEY_HAPTIC_PLAY_SETTLE_MS
+    int "How long to wait for a boot-path buzz to finish"
+    default 150
+    range 10 1000
+    depends on KOBITOKEY_HAPTIC
+    help
+      Only used on the closed-lid USB boot, where the half powers off as
+      soon as it has read the lid. The GO bit is polled and this is just
+      the ceiling, so a short effect returns long before it.
+
+config KOBITOKEY_HAPTIC_CAL_SURVEY
+    int "Repeat calibration this many times at boot and log each result"
+    default 0
+    range 0 20
+    depends on KOBITOKEY_HAPTIC
+    help
+      Diagnostic. 0 disables it.
+
+      One passing calibration is not evidence that the calibration was
+      right: this part has returned DIAG_RESULT=0 while reporting a
+      back-EMF of 22 and a resonance of 508 Hz, which is roughly twice the
+      real figure. Numbers taken from a single run are worth what that run
+      happened to lock onto.
+
+      Running it repeatedly and printing every result shows whether the
+      measurement is repeatable at all. Tight cluster: trust it. Scatter:
+      this actuator cannot be characterised this way and the drive should
+      be fixed rather than measured.
+
+config KOBITOKEY_HAPTIC_WORKQ_STACK_SIZE
+    int "Stack size for the haptic thread"
+    default 768
+    depends on KOBITOKEY_HAPTIC
+    help
+      Every register write happens on this thread, never on the input path
+      and never on the system workqueue. A stuck bus then costs a buzz, not
+      the pointer.
+
+endmenu
 
 menu "KobitoKey Fold Sense"
 

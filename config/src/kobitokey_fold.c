@@ -14,7 +14,6 @@
 
 #include <hal/nrf_power.h>
 #include <hal/nrf_gpio.h>
-#include <soc/nrfx_coredep.h>
 
 #include "kobitokey_fold.h"
 #include "kobitokey_haptic.h"
@@ -164,12 +163,6 @@ static void fold_show_battery_immediately(void)
 #endif
 
 /*
- * Set once the buzz for a closed-lid USB insertion has been started by the
- * early hooks below, so kobitokey_fold_init() does not repeat it.
- */
-static bool fold_early_usb_ack_done;
-
-/*
  * Waking from a closed lid is a System OFF wake, which on nRF52840 is a
  * full chip reset: the UF2 bootloader runs, then Zephyr boots, and only
  * then would kobitokey_fold_init() at POST_KERNEL 95 acknowledge the USB
@@ -179,25 +172,30 @@ static bool fold_early_usb_ack_done;
  * -- plausibly waiting on the 32.768kHz crystal inside the system clock
  * driver, which initializes at that same level.
  *
- * So the buzz now *starts* at PRE_KERNEL_1 priority 0, the first
+ * So the acknowledgement runs at PRE_KERNEL_1 priority 0, the first
  * opportunity to run C code at all. nrf_gpio writes registers directly and
- * needs no driver or clock setup, so this works even that early. What it
- * cannot do is wait: k_busy_wait depends on the system timer, which is not
- * up yet. The pin is therefore only raised here and cleared by a second
- * hook once timing is available, making the buzz last as long as the gap
- * between the two.
- *
- * This also serves as a measurement: whatever delay remains after this is
- * bootloader time, which firmware cannot shorten.
+ * needs no driver or clock setup, so this works even that early.
  *
  * Pins are read through nrf_gpio rather than their devicetree specs
  * because the vbus and fold initializers have not configured them yet.
  * Both signals are active-high, so a raw read matches the logical level.
  *
- * The LED half stays in kobitokey_fold_init(): it needs a battery reading,
- * and the ADC and sensor driver are not available this early.
+ * ここでやるのは色だけだ。振動は後の kobitokey_fold_init() が鳴らす。
+ *
+ * 以前はここで P1.11 を出力にしてERMを回していた。新基板ではその
+ * P1.11 は DRV2605L の SDA で、ここで叩けば起動のたびにI2Cの
+ * データ線を引っ張ることになる。
+ *
+ * そして DRV2605L はI2C越しにしか鳴らせない。I2Cドライバが動き出すのは
+ * POST_KERNEL 50 で、この PRE_KERNEL_1 よりずっと後だ。だから振動は、
+ * I2Cが使える最初の地点である POST_KERNEL 95 の蓋判定と同じ場所まで
+ * 下ろしてある。色だけがここに残っているのは、色ならこの早さで出せて、
+ * 出せるものを遅らせる理由が無いからだ。
+ *
+ * The battery reading itself stays in kobitokey_fold_init(): the ADC and
+ * sensor driver are not available this early, so only the remembered
+ * colour can be shown here.
  */
-#define FOLD_HAPTIC_PIN NRF_GPIO_PIN_MAP(1, 11)
 
 #define FOLD_LED_PIN(alias) NRF_GPIO_PIN_MAP(0, DT_GPIO_PIN(DT_ALIAS(alias), gpios))
 
@@ -256,32 +254,75 @@ static int kobitokey_fold_early_usb_ack_start(void)
         return 0; /* Same USB session as before; stay quiet. */
     }
 
-    /* nrfx_coredep_delay_us is a calibrated CPU spin, so unlike
-     * k_busy_wait it does not need the system timer and the whole pulse
-     * fits in this one hook. An earlier attempt split it across two hooks
-     * and cleared the pin at PRE_KERNEL_2, which stretched the buzz by the
-     * entire gap between them -- well over 100ms, felt as an unpleasantly
-     * strong jolt rather than a short tick. */
     const uint8_t state = fold_usb_state_get();
 
-    /* Light the remembered colour first so it lands with the buzz rather
-     * than after it. Skipped on the very first insertion, when nothing has
-     * been cached yet; kobitokey_fold_init() still shows the real level. */
+    /* Show the remembered level. Skipped on the very first insertion, when
+     * nothing has been cached yet; kobitokey_fold_init() still shows the
+     * real level. */
     if ((state & FOLD_USB_FLAG_COLOR_VALID) != 0U) {
         fold_early_leds_set((state & FOLD_USB_COLOR_MASK) >> FOLD_USB_COLOR_SHIFT);
     }
-
-    nrf_gpio_cfg_output(FOLD_HAPTIC_PIN);
-    nrf_gpio_pin_set(FOLD_HAPTIC_PIN);
-    nrfx_coredep_delay_us(CONFIG_KOBITOKEY_HAPTIC_USB_PULSE_MS * 1000U);
-    nrf_gpio_pin_clear(FOLD_HAPTIC_PIN);
-
-    fold_early_usb_ack_done = true;
 
     return 0;
 }
 
 SYS_INIT(kobitokey_fold_early_usb_ack_start, PRE_KERNEL_1, 0);
+
+/*
+ * Set once the closed-lid USB buzz has been played, so
+ * kobitokey_fold_init() does not play it a second time.
+ */
+static bool fold_early_usb_buzz_done;
+
+/*
+ * 閉じたままUSBを挿した起動で、振動を鳴らせる最初の地点。
+ *
+ * 色は PRE_KERNEL_1 で出せるが、振動は DRV2605L に話しかけないと鳴らず、
+ * その相手は I2C の先にいる。だからこの通知には「I2Cドライバが立ち上がる
+ * POST_KERNEL 50 より前には鳴らせない」という物理的な下限がある。
+ * ここはその下限の直後だ。
+ *
+ * 蓋の判定を待たない理由：kobitokey_fold_init() は POST_KERNEL 95 で、
+ * しかも5回の読み取りに100msかける。通知としては、それだけ遅らせる価値が
+ * ない。ここで一度読んで閉じていれば鳴らす。
+ *
+ * 万一その読みが外れていた場合に起きるのは「開いているのに一度鳴った」
+ * だけで、電源は落ちない。落とすかどうかの判断は今までどおり
+ * kobitokey_fold_init() が5回読んでから決める。鳴らす判断と切る判断で
+ * 慎重さの度合いを変えているのは、外したときの代償が違うからだ。
+ *
+ * ピンは PRE_KERNEL_1 のフックが入力に設定済みだが、あちらが将来
+ * 変わっても困らないよう、ここでも設定してから読む。
+ */
+static int kobitokey_fold_early_usb_buzz(void)
+{
+    nrf_gpio_cfg_input(FOLD_FAST_PIN, NRF_GPIO_PIN_NOPULL);
+    nrf_gpio_cfg_input(VBUS_FAST_PIN, NRF_GPIO_PIN_NOPULL);
+
+    if (nrf_gpio_pin_read(FOLD_FAST_PIN) == 0) {
+        return 0; /* Open: this is a normal boot. */
+    }
+
+    if (nrf_gpio_pin_read(VBUS_FAST_PIN) == 0) {
+        return 0; /* Closed on battery: nothing to acknowledge. */
+    }
+
+    if ((fold_usb_state_get() & (FOLD_USB_FLAG_RUNTIME_CLOSE |
+                                 FOLD_USB_FLAG_SESSION_NOTIFIED)) != 0U) {
+        return 0; /* Same USB session as before; stay quiet. */
+    }
+
+    kobitokey_haptic_usb_acknowledge();
+    fold_early_usb_buzz_done = true;
+
+    return 0;
+}
+
+/*
+ * POST_KERNEL 60: I2C(50) と振動の初期化(55) の後、電池もLEDも要らない
+ * ので、それらを待つ理由はない。
+ */
+SYS_INIT(kobitokey_fold_early_usb_buzz, POST_KERNEL, 60);
 
 bool kobitokey_fold_is_closed(void)
 {
@@ -553,10 +594,26 @@ static int kobitokey_fold_init(void)
                               FOLD_USB_FLAG_SESSION_NOTIFIED)) != 0U;
 
             if (!suppress_closed_usb_feedback) {
-                /* A -> B: charging feedback before returning to System OFF.
-                 * The buzz normally already happened in the PRE_KERNEL_2
-                 * hook; only fall back to it here if that did not run. */
-                if (!fold_early_usb_ack_done) {
+                /*
+                 * A -> B: charging feedback before returning to System OFF.
+                 *
+                 * The buzz happens here rather than in the PRE_KERNEL_1
+                 * hook because the DRV2605L can only be reached over I2C,
+                 * and the I2C driver initialises at POST_KERNEL 50 -- ahead
+                 * of this, but well behind that hook. It is late enough to
+                 * work and early enough to matter: nothing has powered off
+                 * yet, and the battery display below spends most of a
+                 * second anyway.
+                 *
+                 * kobitokey_haptic_usb_acknowledge() brings the chip up on
+                 * the spot and waits for the effect to finish, so the power
+                 * is not cut out from under a buzz that just started.
+                 *
+                 * Normally the POST_KERNEL 60 hook has already done it,
+                 * some 100ms earlier; this is the fallback for the case
+                 * where the lid only read closed on the confirmed sample.
+                 */
+                if (!fold_early_usb_buzz_done) {
                     kobitokey_haptic_usb_acknowledge();
                 }
 #if defined(CONFIG_RGBLED_WIDGET) && defined(CONFIG_ZMK_BATTERY_REPORTING) && \
