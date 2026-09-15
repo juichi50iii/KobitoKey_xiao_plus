@@ -24,7 +24,7 @@ static int haptic_right_handle_event(const struct device *dev,
         event->value != 0 &&
         (event->code == INPUT_REL_X ||
          event->code == INPUT_REL_Y)) {
-        kobitokey_haptic_pulse();
+        kobitokey_haptic_pulse_rel(event->value);
     }
 
     return ZMK_INPUT_PROC_CONTINUE;

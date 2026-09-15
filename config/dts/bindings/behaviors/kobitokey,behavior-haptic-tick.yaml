@@ -1,0 +1,13 @@
+description: |
+  Plays one haptic effect on the half it runs on.
+
+  This exists so the central can reach the peripheral's motor. ZMK's split
+  link can invoke a behavior on the other half by name, and that is the
+  only channel available for it -- so the thing to be reached has to be a
+  behavior, even though it is never bound to a key.
+
+  The single parameter is the DRV2605 effect number.
+
+compatible: "kobitokey,behavior-haptic-tick"
+
+include: one_param.yaml

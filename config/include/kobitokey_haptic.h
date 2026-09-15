@@ -3,8 +3,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/*
+ * ひと刻み。動いた量を渡す形が本命で、渡された量から転がりの速さを
+ * 起こし、速いほど刻みの間隔を詰める。量の分からない呼び出しのために
+ * 引数なしの版も残してあるが、そちらは速さを測る材料にはならない。
+ */
+void kobitokey_haptic_pulse_rel(int32_t value);
 void kobitokey_haptic_pulse(void);
 void kobitokey_haptic_pulse_ms(uint32_t duration_ms);
+
+/*
+ * 指定のエフェクトをひとつ。転がしの速さとは関係ない知らせ用。
+ * スクロールの刻みと最短間隔だけは共有する。
+ */
+void kobitokey_haptic_effect(uint8_t effect);
 void kobitokey_haptic_usb_acknowledge(void);
 void kobitokey_haptic_shutdown(void);
 

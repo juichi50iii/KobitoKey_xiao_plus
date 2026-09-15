@@ -111,23 +111,62 @@
     };
 
     /* Speed-dependent gain for the right ball's cursor. Slow movement
-     * passes at 1.0 so aiming keeps the sensor's own precision; a hard
-     * flick is stretched to 3.0x so the pointer can cross the screen
-     * without turning the ball repeatedly. Thresholds are in input
-     * counts per second at 760 cpi.
+     * passes at 1.05, barely stretched, so aiming keeps the sensor's own
+     * feel; a hard flick is stretched to 4.8x so the pointer can cross
+     * the screen without turning the ball repeatedly. Thresholds are in
+     * input
+     * counts per second at 760 cpi -- 5500 is about 184 mm/s of ball
+     * surface.
      *
-     * The exponent is what stops it running away early: at 3, gain is
-     * still only about 1.1x a third of the way up the range, so brisk
-     * movement stays honest and the pull only arrives when the ball is
-     * genuinely thrown. slow-speed sits at 900 for the same reason. */
+     * The exponent is what stops it running away early. It holds the gain
+     * near 1.0 through the lower part of the range and saves the climb
+     * for movement that is genuinely fast, so brisk aiming stays honest.
+     *
+     * The two speeds and the exponent are set together, because the
+     * exponent decides where in the range the pull actually becomes
+     * noticeable and the speeds decide where that range sits. At
+     * exponent 4 the gain did not reach 1.1x until about 3200, which
+     * read as the acceleration arriving a beat late. Exponent 3 brought
+     * that to roughly 2950, and slow-speed moved up to 1500 to pay for
+     * it: the lower rung of the curve is where careful movement lives,
+     * and a gentler exponent would otherwise start lifting it.
+     *
+     * fast-gain then went from 3.2x to 4.8x, for crossing between
+     * displays: at 3.2x the top is about 2400 cpi, and three 27-inch
+     * screens take some 80 mm of ball travel, which is more than one
+     * throw. 4.8x brings that to about 50 mm.
+     *
+     * Raising the ceiling steepens everything below it, so the exponent
+     * went back to 4 to pay for that in turn, and the two cancel through
+     * the range where ordinary aiming happens -- within a few per cent
+     * of the tuned curve up to 4000. The extra height is spent entirely
+     * above that, where the ball is being thrown rather than aimed: 4500
+     * goes from 1.9x to 2.2x, and 5000 from 2.5x to 3.2x.
+     *
+     * So each of these three is holding one of the others still. Change
+     * one alone and it will not do what its name suggests.
+     *
+     * slow-gain is the exception, and the only way to reach the bottom of
+     * the range at all: below slow-speed the curve is not consulted, so
+     * nothing else here touches a hand that is moving carefully. Lifting
+     * it adds its whole amount there and less and less further up, until
+     * it is gone entirely at the ceiling -- exactly the shape wanted,
+     * since the fast end was already where it should be.
+     *
+     * Resolution survives it. Remainders are carried per axis, so a
+     * single count still moves the pointer one; it just occasionally
+     * moves two.
+     *
+     * A tenth was more than the bottom wanted, so it sits at a
+     * twentieth. */
     pointer_accel: pointer_accel {
         compatible = "zmk,input-processor-accel";
         #input-processor-cells = <0>;
 
-        slow-speed = <1200>;
+        slow-speed = <1500>;
         fast-speed = <5500>;
-        slow-gain = <1000>;
-        fast-gain = <3200>;
+        slow-gain = <1050>;
+        fast-gain = <4800>;
         curve-exponent = <4>;
         idle-ms = <120>;
     };
@@ -235,9 +274,9 @@
         6
         7
         8
+        9
         30
         32
         33
-        39
     >;
 };

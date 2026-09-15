@@ -11,26 +11,234 @@ config KOBITOKEY_HAPTIC
       shieldless builds -- settings_reset among them -- compiling.
 
 config KOBITOKEY_HAPTIC_COOLDOWN_MS
-    int "KobitoKey haptic cooldown in milliseconds"
+    int "Shortest gap between ticks, in milliseconds"
     default 50
     range 0 2000
     depends on KOBITOKEY_HAPTIC
+    help
+      Applies either way the spacing is driven -- see
+      KOBITOKEY_HAPTIC_TICK_BY_DISTANCE.
+
+      By time: the gap the ticks close up to when the ball is being
+      turned at COOLDOWN_FAST_SPEED or above. Also the gap used at every
+      speed if COOLDOWN_SLOW_MS is not above it, which is how this
+      behaved before the spacing was made to vary.
+
+      By distance: a floor on how fast the motor can be asked to fire
+      again, nothing more. Distance decides *whether* a tick was earned;
+      this only limits how often the request can be honoured, which is
+      a property of the motor rather than of the ball.
+
+config KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    bool "Space ticks by distance turned rather than by time"
+    default n
+    depends on KOBITOKEY_HAPTIC
+    help
+      Until now the gap between ticks has been computed from how fast
+      the ball is turning -- see KOBITOKEY_HAPTIC_COOLDOWN_SLOW_MS and
+      neighbours. This instead fires a tick every fixed step of
+      movement (KOBITOKEY_HAPTIC_TICK_NOTCH counts) and lets the timing
+      fall out of that for free: turn twice as fast, and the same steps
+      arrive twice as often. No speed is measured, smoothed, or curved
+      to get there.
+
+      The feel is not just a different mechanism, it is a different
+      shape. Closing a *time* gap along a straight line makes the
+      *rate* -- its reciprocal -- climb increasingly steeply, which is
+      what gave the time-based version its sense of building up. Distance
+      gives up that climb for exact proportionality: twice the speed is
+      exactly twice the rate, the way spinning a real detented dial
+      faster does not exaggerate into a crescendo, it just clicks more
+      often.
+
+      It also drops the floor. The time-based version keeps ticking at
+      COOLDOWN_SLOW_MS even when the ball is barely turning, because a
+      duration has to be picked regardless of speed. Distance has
+      nothing to say about a ball that has not covered a step yet, so
+      barely-there movement goes quiet rather than ticking on a timer.
+
+      Position is tracked signed, so working back across a step before
+      finishing it withdraws the credit rather than adding to it --
+      rocking the ball across a boundary it has not yet crossed does not
+      tick, the way it would if distance travelled were tracked instead
+      of position reached.
+
+config KOBITOKEY_HAPTIC_TICK_NOTCH
+    int "Movement per tick, in common units"
+    default 15
+    range 1 65535
+    depends on KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      This is the number to compare when tuning feel by hand, and it is
+      meant to read the same in both .conf files -- see
+      KOBITOKEY_HAPTIC_TICK_SCALE for why it can.
+
+config KOBITOKEY_HAPTIC_TICK_SCALE
+    int "Raw counts per common unit, for this half"
+    default 1
+    range 1 65535
+    depends on KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      The two halves' ticks do not count the same thing. The right
+      half's sits after the vertical scroll scaler (1/8), so it counts
+      scroll output; the left half's fires from a local input callback
+      ahead of any scaling, so it counts the raw sensor. The same hand
+      movement reads about twelve times higher on the left.
+
+      Rather than let that show up as two unrelated numbers in
+      TICK_NOTCH, it is factored out here: the threshold actually used
+      is TICK_NOTCH x TICK_SCALE. Set TICK_NOTCH the same on both
+      halves and let this carry the difference -- 1 on the right, 12 on
+      the left. Whether the two are actually equal by feel is a
+      separate question this cannot answer; it only keeps the numbers
+      that describe them comparable.
+
+config KOBITOKEY_HAPTIC_COOLDOWN_SLOW_MS
+    int "Longest gap between ticks, in milliseconds"
+    default 120
+    range 0 2000
+    depends on KOBITOKEY_HAPTIC && !KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      The gap at COOLDOWN_SLOW_SPEED and below, and the gap a scroll
+      starts from after a pause.
+
+      Between the two speeds the gap closes towards COOLDOWN_MS, so the
+      ticks arrive closer together the faster the ball turns. The gap is
+      interpolated, not the rate, which means the rate itself accelerates:
+      halfway up the speed range the gap is halfway between the two, but
+      the ticks per second are not -- they are still nearer the slow end,
+      and most of the rise lands in the upper part of the range.
+
+      Set this at or below COOLDOWN_MS to go back to a fixed spacing.
+
+config KOBITOKEY_HAPTIC_COOLDOWN_SLOW_SPEED
+    int "Speed at or below which the ticks stay at their widest"
+    default 60
+    range 1 65535
+    depends on KOBITOKEY_HAPTIC && !KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      In whatever counts per second reach the tick, which is not the same
+      thing on the two halves.
+
+      The right half's ticks are driven from an input processor that sits
+      after the scroll scalers, so it counts scroll output -- roughly the
+      ball's counts divided by the scaler's divisor. The left half's are
+      driven from an input callback on the sensor itself, so it counts
+      raw sensor counts. The left's numbers are therefore around a dozen
+      times the right's for the same movement of the hand, and the two
+      halves' values here are not meant to match.
+
+config KOBITOKEY_HAPTIC_COOLDOWN_FAST_SPEED
+    int "Speed at or above which the ticks stay at their tightest"
+    default 350
+    range 2 65535
+    depends on KOBITOKEY_HAPTIC && !KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      Must be above COOLDOWN_SLOW_SPEED. See that option for the units.
+
+config KOBITOKEY_HAPTIC_COOLDOWN_CURVE
+    int "Shape of the climb between the two speeds"
+    default 1
+    range 1 4
+    depends on KOBITOKEY_HAPTIC && !KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      1 closes the gap in a straight line, which already accelerates in
+      ticks per second because the rate is the reciprocal of the gap.
+      Higher values hold the gap near its widest through the lower part
+      of the range and save the tightening for genuinely fast movement.
+
+      This cannot make the ticks tighten *earlier* than a straight line.
+      For that, lower COOLDOWN_FAST_SPEED instead.
+
+config KOBITOKEY_HAPTIC_HOLD_TICK
+    bool "Tick when a hold-tap settles on its hold"
+    default n
+    depends on KOBITOKEY_HAPTIC && (!ZMK_SPLIT || ZMK_SPLIT_ROLE_CENTRAL)
+    help
+      A key bound to a hold-tap is not yet anything when it goes down: a
+      letter if it is tapped, a modifier or a layer if it is held. The
+      split between the two is invisible from the finger's side, so the
+      only way to know is to count out the tapping term and hope. This
+      returns a tick at that moment instead.
+
+      Off, because it turned out to be unpleasant to type against. The
+      pointer's tick answers a hand that is deliberately turning a ball;
+      this one fires in the middle of typing, where the hand is already
+      committed and has nothing to do with the information. Knowing the
+      hold had landed was not worth being interrupted mid-word.
+
+      Everything it needs is still here and still built -- the listener,
+      the behaviour that carries a tick across the split link, its
+      binding, and the node in the shield's dtsi. Setting this to y turns
+      it back on with nothing else to put back.
+
+      Only the central half can decide this, which is why the option is
+      not offered on a peripheral: behaviours are resolved centrally, and
+      the events this reads are not even built on the other side.
+
+      The tick still lands on the half the key belongs to. The central
+      remembers which side each held position came from and, for one on
+      the other half, reaches its motor over the split link -- which
+      carries behaviour invocations and nothing else, so the tick is
+      dressed up as a behaviour to fit through. See
+      src/behavior_haptic_tick.c.
+
+config KOBITOKEY_HAPTIC_HOLD_TICK_MODS
+    bool "Tick when a held key becomes a modifier"
+    default y
+    depends on KOBITOKEY_HAPTIC_HOLD_TICK
+
+config KOBITOKEY_HAPTIC_HOLD_TICK_LAYERS
+    bool "Tick when a held key turns a layer on"
+    default y
+    depends on KOBITOKEY_HAPTIC_HOLD_TICK
+
+config KOBITOKEY_HAPTIC_HOLD_TICK_EFFECT
+    int "Effect played when a hold settles"
+    default 25
+    range 1 123
+    depends on KOBITOKEY_HAPTIC_HOLD_TICK
+    help
+      25 is Sharp Tick 2 at 80%.
+
+      This started at 6, Sharp Click at 30%, on the reasoning that a
+      light tap should be light. It was too soft to read as a definite
+      answer -- a hold either happened or it did not, and the tick has to
+      say which. Sharp Tick is the same family as the pointer's own tick,
+      one rung stronger than the 60% it uses, so the two are the same
+      kind of sensation and the one that matters is the firmer one.
+
+config KOBITOKEY_HAPTIC_HOLD_TICK_MIN_MS
+    int "How long a key must have been down to count as held"
+    default 40
+    range 0 1000
+    depends on KOBITOKEY_HAPTIC_HOLD_TICK
+    help
+      Nothing distinguishes the modifier a hold-tap produces from a plain
+      &kp LSHFT except that the key had been down for a while first, so
+      without this every capital letter would tick.
+
+      A plain binding fires within a millisecond of the key going down; a
+      hold has waited out the tapping term, or at least until the next
+      key arrived. 40 sits well clear of the first and well below the
+      second.
+
+      Set this to 0 to tick on every modifier and every layer, including
+      ones that engage the moment the key goes down, such as &mo.
+
+config KOBITOKEY_HAPTIC_COOLDOWN_IDLE_MS
+    int "Gap that counts as the end of a scroll, in milliseconds"
+    default 200
+    range 20 2000
+    depends on KOBITOKEY_HAPTIC && !KOBITOKEY_HAPTIC_TICK_BY_DISTANCE
+    help
+      After this long without movement the speed is forgotten, so the
+      next scroll starts from the widest spacing and builds again rather
+      than resuming at the rate the last one ended on.
 
 config KOBITOKEY_HAPTIC_BOOT_DELAY_MS
     int "KobitoKey boot haptic delay in milliseconds"
     default 500
-    range 0 10000
-    depends on KOBITOKEY_HAPTIC
-
-config KOBITOKEY_HAPTIC_BOOT_GAP1_MS
-    int "KobitoKey boot haptic first gap in milliseconds"
-    default 600
-    range 0 10000
-    depends on KOBITOKEY_HAPTIC
-
-config KOBITOKEY_HAPTIC_BOOT_GAP2_MS
-    int "KobitoKey boot haptic second gap in milliseconds"
-    default 150
     range 0 10000
     depends on KOBITOKEY_HAPTIC
 
@@ -51,23 +259,43 @@ config KOBITOKEY_HAPTIC_EFFECT
     range 1 123
     depends on KOBITOKEY_HAPTIC
 
-config KOBITOKEY_HAPTIC_BOOT_EFFECT_LONG
-    int "Effect played first at boot"
-    default 47
-    range 1 123
-    depends on KOBITOKEY_HAPTIC
-
 config KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT
-    int "Effect played for the two short boot buzzes"
-    default 1
+    int "Effect played for each of the boot buzzes"
+    default 2
     range 1 123
     depends on KOBITOKEY_HAPTIC
+    help
+      2 is Strong Click at 60%. Nothing else reads this option, so
+      changing it changes every beat of the boot pattern at once.
+
+config KOBITOKEY_HAPTIC_BOOT_COUNT
+    int "Number of boot buzzes"
+    default 5
+    range 1 20
+    depends on KOBITOKEY_HAPTIC
+    help
+      Each one is a separate trigger to the chip, spaced by
+      BOOT_GAP_MS, rather than one trigger holding several -- the
+      waveform sequencer only holds 8 slots per trigger, which a gapped
+      run of more than about 4 would exceed. Scheduling each buzz
+      separately keeps the count free of that ceiling.
+
+config KOBITOKEY_HAPTIC_BOOT_GAP_MS
+    int "Gap between boot buzzes, in milliseconds"
+    default 150
+    range 0 2000
+    depends on KOBITOKEY_HAPTIC
+    help
+      0 makes them run back to back.
 
 config KOBITOKEY_HAPTIC_USB_EFFECT
     int "Effect played when USB is connected"
-    default 1
+    default 2
     range 1 123
     depends on KOBITOKEY_HAPTIC
+    help
+      Same 60% strong click as the short boot buzz. See that option for
+      why one step gets there.
 
 config KOBITOKEY_HAPTIC_RATED_VOLTAGE
     int "DRV2605L RATED_VOLTAGE register value"

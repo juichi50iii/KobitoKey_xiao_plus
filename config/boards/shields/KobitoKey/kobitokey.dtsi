@@ -125,4 +125,23 @@
     chosen {
         zmk,physical-layout = &physical_layout0;
     };
+
+    /*
+     * 左右どちらにも要る。キーマップからは呼ばないが、central が
+     * peripheral 側を鳴らすとき、この名前で向こうの behavior を叩く。
+     * 名前で引くので、片側にしか無いと左手が黙る。
+     *
+     * 名前は8文字までしか向こうに届かない。分割リンクが behavior 名に
+     * 割いている枠が終端込みで9バイトしかなく (ZMK_SPLIT_RUN_BEHAVIOR_
+     * DEV_LEN)、はみ出した分は黙って切り落とされる。切り詰められても
+     * 送信は成功として返るので、向こうで名前が引けずに何も起きない、
+     * という形の失敗になる。最初は haptic_tick と名付けていて、これに
+     * 引っかかった。
+     */
+    behaviors {
+        hap_tick: hap_tick {
+            compatible = "kobitokey,behavior-haptic-tick";
+            #binding-cells = <1>;
+        };
+    };
 };

@@ -93,13 +93,19 @@ static const struct gpio_dt_spec haptic_en =
 
 #define DRV_STATUS_DIAG_RESULT BIT(3)
 
-/* Waveform slots take either an effect number or, with bit 7 set, a wait
- * of (value & 0x7f) * 10ms. A slot of 0 ends the sequence. */
-#define DRV_WAIT_MAX_MS 1270
-#define DRV_WAIT(ms)    (0x80 | (uint8_t)(((ms) + 5) / 10))
-
 #define HAPTIC_COOLDOWN_MS CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_MS
 #define HAPTIC_BOOT_DELAY_MS CONFIG_KOBITOKEY_HAPTIC_BOOT_DELAY_MS
+
+/*
+ * 刻みの間隔を測るときに信用する最短の時間。
+ *
+ * トラックボールのドライバは一定の周期で報告するが、イベントが
+ * その周期どおりに届くとは限らない。XとYが同じ報告から出れば
+ * 二つはほぼ同時刻に並ぶし、リンクが詰まれば二つがまとめて来る。
+ * 1msの隙間で割ると、ふつうの動きが何倍もの速さに化ける。
+ * ドライバの周期より短い隙間はその周期として扱う。
+ */
+#define HAPTIC_SPEED_MIN_INTERVAL_MS 10
 
 /* EN low to first transfer. The datasheet asks for 250us; a millisecond
  * costs nothing and only happens at boot. */
@@ -111,6 +117,12 @@ static const struct gpio_dt_spec haptic_en =
 
 static int64_t last_haptic_time;
 static bool haptic_ready;
+
+#if !IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC_TICK_BY_DISTANCE)
+/* 直前に刻みを求められた時刻と、そこから起こした速度。 */
+static int64_t last_pulse_request_time;
+static uint32_t pulse_speed;
+#endif
 
 /*
  * ワークキューとENピンの用意ができているか。
@@ -130,6 +142,8 @@ static K_THREAD_STACK_DEFINE(haptic_workq_stack,
                              CONFIG_KOBITOKEY_HAPTIC_WORKQ_STACK_SIZE);
 static struct k_work haptic_play_work;
 static struct k_work_delayable haptic_setup_work;
+static struct k_work_delayable haptic_boot_step_work;
+static uint8_t haptic_boot_remaining;
 
 
 static int drv_write(uint8_t reg, uint8_t value)
@@ -184,6 +198,38 @@ static int drv_play_effect(uint8_t effect)
     const uint8_t slots[] = { effect };
 
     return drv_play(slots, ARRAY_SIZE(slots));
+}
+
+
+/*
+ * GOが下りるまで待つ。書いたその場では、再生が終わったとは限らない。
+ *
+ * 前の再生がまだ続いている間に次のGOを立てても、チップは受け取らない
+ * ことがある。一定時間で次を撃つだけの実装は、そこで1発を静かに
+ * 失っていた。ここを踏んでから次を予約すれば、待った時間の分だけ
+ * 確実に鳴り終わっている。
+ */
+static void drv_wait_idle(int64_t timeout_ms)
+{
+    const int64_t deadline = k_uptime_get() + timeout_ms;
+
+    for (;;) {
+        uint8_t go = 0;
+
+        if (k_uptime_get() > deadline) {
+            return;
+        }
+
+        if (drv_read(DRV_REG_GO, &go) != 0) {
+            return;
+        }
+
+        if ((go & 0x01) == 0) {
+            return;
+        }
+
+        k_busy_wait(2000U);
+    }
 }
 
 
@@ -493,26 +539,47 @@ static bool haptic_play_and_wait_now(uint8_t effect)
 
 
 /*
- * バッテリー起動時のブート振動。
+ * ブート振動の1発。残りがあれば、間隔をおいて次の自分を予約する。
  *
- * 長い1回 → GAP1 → 短い1回 → GAP2 → 短い1回。
+ * 波形シーケンサは1回のGOにつき8スロットしか持たない。間隔ありで
+ * 複数発を1回のGOに詰め込む方式には、そこで頭打ちが来る(5発+間隔4個
+ * で9スロットになり、実際に一度これで超過して4発しか鳴らなかった)。
+ * 1回のGOには1発だけ載せて、間隔は k_work_schedule で作る側に回せば、
+ * 発数はスロット数と無関係になる。
  *
- * 旧実装はこれを k_sleep を挟んだ手続きで鳴らしていて、その間ずっと
- * ワークキューを握っていた。今はチップの波形シーケンサに丸ごと預ける
- * ので、GOを立てた時点でこちらの仕事は終わる。
+ * ワークキューを塞がない。delayable work はスケジュールしたら即座に
+ * 制御を返し、実際の遅延はキューの外(タイマー)で待たれる。
  */
+static void haptic_boot_step_handler(struct k_work *work)
+{
+    ARG_UNUSED(work);
+
+    if (haptic_boot_remaining == 0) {
+        return;
+    }
+
+    haptic_boot_remaining--;
+    (void)drv_play_effect(CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT);
+    last_haptic_time = k_uptime_get();
+
+    if (haptic_boot_remaining > 0) {
+        /*
+         * ここで実際に鳴り終わるのを見届けてから間隔を数え始める。
+         * このハンドラは専用ワークキュー上で動いていて、ここが塞がる
+         * あいだ他のI2C処理を巻き込まないので、待つこと自体は安全。
+         */
+        drv_wait_idle(CONFIG_KOBITOKEY_HAPTIC_PLAY_SETTLE_MS);
+
+        (void)k_work_schedule_for_queue(&haptic_workq, &haptic_boot_step_work,
+                                        K_MSEC(CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP_MS));
+    }
+}
+
+
 static void haptic_play_boot_pattern(void)
 {
-    const uint8_t slots[] = {
-        CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_LONG,
-        DRV_WAIT(MIN(CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP1_MS, DRV_WAIT_MAX_MS)),
-        CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT,
-        DRV_WAIT(MIN(CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP2_MS, DRV_WAIT_MAX_MS)),
-        CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT,
-    };
-
-    (void)drv_play(slots, ARRAY_SIZE(slots));
-    last_haptic_time = k_uptime_get();
+    haptic_boot_remaining = CONFIG_KOBITOKEY_HAPTIC_BOOT_COUNT;
+    haptic_boot_step_handler(NULL);
 }
 
 
@@ -629,10 +696,174 @@ static void haptic_request(uint8_t effect)
 }
 
 
-void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
+#if IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC_TICK_BY_DISTANCE)
+
+/*
+ * 符号付きの位置を、ノッチ幅で割った余りとして持つ。
+ *
+ * 前に進んで境目を跨いだら余りがノッチ幅を超え、そこで1つ鳴らして
+ * 余りを戻す。戻る方向に動けば余りはマイナスに寄っていき、同じ境目を
+ * また跨げば再び鳴る。境目の手前で行ったり戻ったりしても、跨がない
+ * 限りは鳴らない ── 距離を積算するのではなく、位置がどちらの側に
+ * いるかで判定しているからだ。
+ */
+static int32_t haptic_notch_remainder;
+
+static void haptic_pulse_by_distance(int32_t value)
+{
+    /*
+     * 余りは生カウントのまま持つ ── これは正確さのために崩さない。
+     * 「共通単位」に換算するのは閾値の側で、TICK_NOTCH に半身ごとの
+     * TICK_SCALE を掛けたものを、実際に比べる幅として使う。
+     */
+    const int32_t notch = (int32_t)CONFIG_KOBITOKEY_HAPTIC_TICK_NOTCH *
+                           (int32_t)CONFIG_KOBITOKEY_HAPTIC_TICK_SCALE;
+
+    if (notch <= 0) {
+        return;
+    }
+
+    haptic_notch_remainder += value;
+
+    while (haptic_notch_remainder >= notch) {
+        haptic_notch_remainder -= notch;
+        kobitokey_haptic_effect(CONFIG_KOBITOKEY_HAPTIC_EFFECT);
+    }
+
+    while (haptic_notch_remainder <= -notch) {
+        haptic_notch_remainder += notch;
+        kobitokey_haptic_effect(CONFIG_KOBITOKEY_HAPTIC_EFFECT);
+    }
+}
+
+#else
+
+/*
+ * いまの速さに見合う、刻みと刻みのあいだの最短時間。
+ *
+ * 遅いうちは広く、速くなるほど狭くなる。詰めているのは間隔であって
+ * 毎秒の回数ではない。回数は間隔の逆数なので、間隔を直線で詰めると
+ * 回数のほうは勝手に加速する。範囲の半分まで来ても回数はまだ遅い側に
+ * 寄っていて、伸びの大半は上のほうに乗る。盛り上がって聞こえるのは
+ * この非対称のおかげで、曲線を足さなくてもこれだけで出る。
+ *
+ * 遅い側と速い側が逆転していたら、間隔を固定にして黙って従う。
+ * 設定の書き間違いで刻みが消えるより、変化しないほうがましだ。
+ */
+static uint32_t haptic_cooldown_for_speed(uint32_t speed)
+{
+    const uint32_t widest = CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_SLOW_MS;
+    const uint32_t tightest = HAPTIC_COOLDOWN_MS;
+    const uint32_t slow = CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_SLOW_SPEED;
+    const uint32_t fast = CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_FAST_SPEED;
+
+    if (widest <= tightest || fast <= slow) {
+        return tightest;
+    }
+
+    if (speed <= slow) {
+        return widest;
+    }
+
+    if (speed >= fast) {
+        return tightest;
+    }
+
+    /*
+     * 範囲のどこまで来たかを1000倍で持ち、曲線の指数だけ掛ける。
+     * 掛けるたびに割り戻すのは、指数3で桁が10^9に届いて32bitを
+     * 溢れさせないため。
+     */
+    const uint32_t span = fast - slow;
+    const uint32_t into = speed - slow;
+    uint64_t shaped = 1000;
+
+    for (int i = 0; i < CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_CURVE; i++) {
+        shaped = shaped * into / span;
+    }
+
+    return widest - (uint32_t)((uint64_t)(widest - tightest) * shaped / 1000);
+}
+
+
+/*
+ * 速さを覚えなおす。
+ *
+ * 刻みを鳴らすかどうかに関わらず、求められたら必ず通す。ここを
+ * 鳴らしたときだけにすると、速さを間引いた結果でしか測れなくなり、
+ * 間隔を決める材料が間隔そのものに引きずられて回らなくなる。
+ */
+static void haptic_note_speed(int32_t value)
+{
+    const int64_t now = k_uptime_get();
+    const int64_t since =
+        last_pulse_request_time > 0 ? now - last_pulse_request_time : 0;
+
+    last_pulse_request_time = now;
+
+    /*
+     * 間があいたら、そこで一度終わったものとみなして速さを捨てる。
+     * 次の一転がしは必ず広い間隔から始まって、また詰まっていく。
+     */
+    if (since <= 0 || since >= CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_IDLE_MS) {
+        pulse_speed = 0;
+        return;
+    }
+
+    const int64_t interval = MAX(since, (int64_t)HAPTIC_SPEED_MIN_INTERVAL_MS);
+    const uint32_t instant =
+        (uint32_t)((int64_t)(value < 0 ? -value : value) * 1000 / interval);
+
+    /* 直前の値を3、今回を1で混ぜる。単発の跳ねで間隔が揺れない。 */
+    pulse_speed = (pulse_speed * 3 + instant) / 4;
+}
+
+#endif /* CONFIG_KOBITOKEY_HAPTIC_TICK_BY_DISTANCE */
+
+
+void kobitokey_haptic_pulse_rel(int32_t value)
+{
+#if IS_ENABLED(CONFIG_KOBITOKEY_HAPTIC_TICK_BY_DISTANCE)
+    haptic_pulse_by_distance(value);
+#else
+    haptic_note_speed(value);
+
+    const int64_t now = k_uptime_get();
+
+    if (now - last_haptic_time < (int64_t)haptic_cooldown_for_speed(pulse_speed)) {
+        return;
+    }
+
+    last_haptic_time = now;
+
+    haptic_request(CONFIG_KOBITOKEY_HAPTIC_EFFECT);
+#endif
+}
+
+
+/*
+ * 指定のエフェクトをひとつ鳴らす。転がしの速さは見ない。
+ *
+ * スクロールの刻みと同じ下限だけは守る。長押しの確定と転がしの刻みが
+ * 同じ瞬間に来ることはありうるし、そのとき二重に鳴ると、どちらの
+ * 知らせなのか分からない濁った一発になる。
+ */
+void kobitokey_haptic_effect(uint8_t effect)
 {
     const int64_t now = k_uptime_get();
 
+    if (now - last_haptic_time < HAPTIC_COOLDOWN_MS) {
+        return;
+    }
+
+    last_haptic_time = now;
+
+    haptic_request(effect);
+}
+
+
+void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
+{
     /*
      * 長さの指定は受け取るが使わない。
      *
@@ -642,19 +873,17 @@ void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
      */
     ARG_UNUSED(duration_ms);
 
-    if (now - last_haptic_time < HAPTIC_COOLDOWN_MS) {
-        return;
-    }
-
-    last_haptic_time = now;
-
-    haptic_request(CONFIG_KOBITOKEY_HAPTIC_EFFECT);
+    kobitokey_haptic_pulse();
 }
 
 
 void kobitokey_haptic_pulse(void)
 {
-    kobitokey_haptic_pulse_ms(0);
+    /*
+     * 動いた量が分からない呼び出し。1として数えておく。速さを測る
+     * 材料にはならないが、0を渡して平均を引き下げるよりは害がない。
+     */
+    kobitokey_haptic_pulse_rel(1);
 }
 
 
@@ -764,7 +993,7 @@ static void kobitokey_haptic_local_input_cb(struct input_event *event)
         event->code == INPUT_REL_Y ||
         event->code == INPUT_REL_WHEEL ||
         event->code == INPUT_REL_HWHEEL) {
-        kobitokey_haptic_pulse();
+        kobitokey_haptic_pulse_rel(event->value);
     }
 }
 
@@ -791,6 +1020,7 @@ static int haptic_init(void)
 
     k_work_init(&haptic_play_work, haptic_play_work_handler);
     k_work_init_delayable(&haptic_setup_work, haptic_setup_work_handler);
+    k_work_init_delayable(&haptic_boot_step_work, haptic_boot_step_handler);
 
     haptic_initialized = true;
 
