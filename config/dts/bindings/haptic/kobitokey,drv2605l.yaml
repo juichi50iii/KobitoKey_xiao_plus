@@ -1,0 +1,25 @@
+# TI DRV2605L haptic driver, driving the LRA on both halves.
+#
+# Not a Zephyr device class: Zephyr 3.5 has no haptic driver class and no
+# DRV2605 driver, so kobitokey_haptic.c talks to the chip over I2C itself.
+# This node exists to keep the bus, the address and the enable pin in the
+# devicetree rather than as constants in the source.
+
+description: TI DRV2605L haptic driver for the KobitoKey LRA
+
+compatible: "kobitokey,drv2605l"
+
+include: i2c-device.yaml
+
+properties:
+  en-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      The DRV2605L EN pin.
+
+      Held low the chip is in hardware shutdown and answers nothing on the
+      bus, so it has to be driven high and given its start-up time before
+      the first transfer. Dropping it low is also the one way to guarantee
+      silence that does not depend on the bus still working, which is why
+      the power-off path pulls it low directly.

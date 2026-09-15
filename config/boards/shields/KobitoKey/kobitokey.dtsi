@@ -1,6 +1,56 @@
 #include <dt-bindings/zmk/matrix_transform.h>
 #include <dt-bindings/zmk/input_transform.h>
+#include <zephyr/dt-bindings/pinctrl/nrf-pinctrl.h>
 #include "KobitoKey-layouts.dtsi"
+
+/*
+ * 振動：DRV2605L を I2C でつなぐ。左右で配線は同一。
+ *
+ * i2c1 でなければならない。nRF52840 の TWIM0 は SPIM0 とペリフェラルIDを
+ * 共有していて同時に使えず、SPIM0 はトラックボールが握っている。
+ *
+ * SDA = D6  = P1.11   （旧基板ではここが振動モーターの直結ピンだった）
+ * SCL = D18 = P1.05
+ * EN  = D19 = P1.07
+ *
+ * D18/D19 の P番号は Seeed の BSP と実機で食い違う既知の問題がある。
+ * BSP は D17=P1.07 / D18=P1.05 / D19=P1.03 と書くが、実機は D17=P1.03 で
+ * （col3 が P1.03 で動いている）、3本の集合 {P1.03, P1.05, P1.07} のうち
+ * P1.03 が D17 で埋まる。残る P1.05 / P1.07 を下の並びに割り当てている。
+ * もし振動だけ無反応なら、まずこの2本を入れ替えて試すこと。
+ */
+&pinctrl {
+    i2c1_default: i2c1_default {
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 1, 11)>,
+                    <NRF_PSEL(TWIM_SCL, 1, 5)>;
+        };
+    };
+
+    i2c1_sleep: i2c1_sleep {
+        group1 {
+            psels = <NRF_PSEL(TWIM_SDA, 1, 11)>,
+                    <NRF_PSEL(TWIM_SCL, 1, 5)>;
+            low-power-enable;
+        };
+    };
+};
+
+&i2c1 {
+    status = "okay";
+    compatible = "nordic,nrf-twim";
+    clock-frequency = <400000>;
+    pinctrl-0 = <&i2c1_default>;
+    pinctrl-1 = <&i2c1_sleep>;
+    pinctrl-names = "default", "sleep";
+
+    haptic_drv: drv2605l@5a {
+        compatible = "kobitokey,drv2605l";
+        reg = <0x5a>;
+        status = "okay";
+        en-gpios = <&gpio1 7 GPIO_ACTIVE_HIGH>;
+    };
+};
 
 / {
     /* 行列スキャン：rowは左右共通、colは左右で分ける */
@@ -74,5 +124,24 @@
     /* ★ デフォルトで使うレイアウトを chosen で指す */
     chosen {
         zmk,physical-layout = &physical_layout0;
+    };
+
+    /*
+     * 左右どちらにも要る。キーマップからは呼ばないが、central が
+     * peripheral 側を鳴らすとき、この名前で向こうの behavior を叩く。
+     * 名前で引くので、片側にしか無いと左手が黙る。
+     *
+     * 名前は8文字までしか向こうに届かない。分割リンクが behavior 名に
+     * 割いている枠が終端込みで9バイトしかなく (ZMK_SPLIT_RUN_BEHAVIOR_
+     * DEV_LEN)、はみ出した分は黙って切り落とされる。切り詰められても
+     * 送信は成功として返るので、向こうで名前が引けずに何も起きない、
+     * という形の失敗になる。最初は haptic_tick と名付けていて、これに
+     * 引っかかった。
+     */
+    behaviors {
+        hap_tick: hap_tick {
+            compatible = "kobitokey,behavior-haptic-tick";
+            #binding-cells = <1>;
+        };
     };
 };
