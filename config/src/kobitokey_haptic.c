@@ -93,6 +93,14 @@ static const struct gpio_dt_spec haptic_en =
 
 #define DRV_STATUS_DIAG_RESULT BIT(3)
 
+/*
+ * 波形スロットに埋め込む「待ち」。0x80以上は待ち時間として扱われ、
+ * 下位7bitが10ms単位。+5は四捨五入。ブートパターン(長い1回→短い1回
+ * →短い1回)を1回のGOにまとめて渡すために使う。
+ */
+#define DRV_WAIT_MAX_MS 1270
+#define DRV_WAIT(ms)    (0x80 | (uint8_t)(((ms) + 5) / 10))
+
 #define HAPTIC_COOLDOWN_MS CONFIG_KOBITOKEY_HAPTIC_COOLDOWN_MS
 #define HAPTIC_BOOT_DELAY_MS CONFIG_KOBITOKEY_HAPTIC_BOOT_DELAY_MS
 
@@ -136,14 +144,13 @@ static bool haptic_initialized;
 /* Effect requested but not yet written out. Read and cleared by the
  * haptic thread, written by whoever asked for a buzz. */
 static atomic_t haptic_pending_effect;
+static atomic_t haptic_pending_gap_ms; /* 0 = ひとつだけ、それ以外 = 同じものを間を空けて2回 */
 
 static struct k_work_q haptic_workq;
 static K_THREAD_STACK_DEFINE(haptic_workq_stack,
                              CONFIG_KOBITOKEY_HAPTIC_WORKQ_STACK_SIZE);
 static struct k_work haptic_play_work;
 static struct k_work_delayable haptic_setup_work;
-static struct k_work_delayable haptic_boot_step_work;
-static uint8_t haptic_boot_remaining;
 
 
 static int drv_write(uint8_t reg, uint8_t value)
@@ -198,38 +205,6 @@ static int drv_play_effect(uint8_t effect)
     const uint8_t slots[] = { effect };
 
     return drv_play(slots, ARRAY_SIZE(slots));
-}
-
-
-/*
- * GOが下りるまで待つ。書いたその場では、再生が終わったとは限らない。
- *
- * 前の再生がまだ続いている間に次のGOを立てても、チップは受け取らない
- * ことがある。一定時間で次を撃つだけの実装は、そこで1発を静かに
- * 失っていた。ここを踏んでから次を予約すれば、待った時間の分だけ
- * 確実に鳴り終わっている。
- */
-static void drv_wait_idle(int64_t timeout_ms)
-{
-    const int64_t deadline = k_uptime_get() + timeout_ms;
-
-    for (;;) {
-        uint8_t go = 0;
-
-        if (k_uptime_get() > deadline) {
-            return;
-        }
-
-        if (drv_read(DRV_REG_GO, &go) != 0) {
-            return;
-        }
-
-        if ((go & 0x01) == 0) {
-            return;
-        }
-
-        k_busy_wait(2000U);
-    }
 }
 
 
@@ -539,47 +514,28 @@ static bool haptic_play_and_wait_now(uint8_t effect)
 
 
 /*
- * ブート振動の1発。残りがあれば、間隔をおいて次の自分を予約する。
+ * バッテリー起動時のブート振動。
  *
- * 波形シーケンサは1回のGOにつき8スロットしか持たない。間隔ありで
- * 複数発を1回のGOに詰め込む方式には、そこで頭打ちが来る(5発+間隔4個
- * で9スロットになり、実際に一度これで超過して4発しか鳴らなかった)。
- * 1回のGOには1発だけ載せて、間隔は k_work_schedule で作る側に回せば、
- * 発数はスロット数と無関係になる。
+ * 長い1回 → GAP1 → 短い1回 → GAP2 → 短い1回(ブーブッブッ)。
  *
- * ワークキューを塞がない。delayable work はスケジュールしたら即座に
- * 制御を返し、実際の遅延はキューの外(タイマー)で待たれる。
+ * チップの波形シーケンサに、効果と待ちを交互に並べた1本のスロット列
+ * として丸ごと預ける。GOを立てた時点でこちらの仕事は終わり、鳴らし
+ * 終わるまで待つ必要も、次の一発を自分で予約し直す必要もない。
+ * 5スロット(効果・待ち・効果・待ち・効果)なので、8スロットの上限にも
+ * 余裕がある。
  */
-static void haptic_boot_step_handler(struct k_work *work)
-{
-    ARG_UNUSED(work);
-
-    if (haptic_boot_remaining == 0) {
-        return;
-    }
-
-    haptic_boot_remaining--;
-    (void)drv_play_effect(CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT);
-    last_haptic_time = k_uptime_get();
-
-    if (haptic_boot_remaining > 0) {
-        /*
-         * ここで実際に鳴り終わるのを見届けてから間隔を数え始める。
-         * このハンドラは専用ワークキュー上で動いていて、ここが塞がる
-         * あいだ他のI2C処理を巻き込まないので、待つこと自体は安全。
-         */
-        drv_wait_idle(CONFIG_KOBITOKEY_HAPTIC_PLAY_SETTLE_MS);
-
-        (void)k_work_schedule_for_queue(&haptic_workq, &haptic_boot_step_work,
-                                        K_MSEC(CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP_MS));
-    }
-}
-
-
 static void haptic_play_boot_pattern(void)
 {
-    haptic_boot_remaining = CONFIG_KOBITOKEY_HAPTIC_BOOT_COUNT;
-    haptic_boot_step_handler(NULL);
+    const uint8_t slots[] = {
+        CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_LONG,
+        DRV_WAIT(MIN(CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP1_MS, DRV_WAIT_MAX_MS)),
+        CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT,
+        DRV_WAIT(MIN(CONFIG_KOBITOKEY_HAPTIC_BOOT_GAP2_MS, DRV_WAIT_MAX_MS)),
+        CONFIG_KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT,
+    };
+
+    (void)drv_play(slots, ARRAY_SIZE(slots));
+    last_haptic_time = k_uptime_get();
 }
 
 
@@ -668,10 +624,24 @@ static void haptic_setup_work_handler(struct k_work *work)
 static void haptic_play_work_handler(struct k_work *work)
 {
     const uint8_t effect = (uint8_t)atomic_set(&haptic_pending_effect, 0);
+    const uint32_t gap_ms = (uint32_t)atomic_set(&haptic_pending_gap_ms, 0);
 
     ARG_UNUSED(work);
 
     if (effect == 0 || !haptic_ready) {
+        return;
+    }
+
+    if (gap_ms > 0) {
+        /* 同じエフェクトを、間を空けて2回。内蔵の2連打は間隔が固定なので、
+         * 起動のパターンと同じく、波形スロットに待ちを挟んで組む。 */
+        const uint8_t slots[] = {
+            effect,
+            DRV_WAIT(MIN(gap_ms, DRV_WAIT_MAX_MS)),
+            effect,
+        };
+
+        (void)drv_play(slots, ARRAY_SIZE(slots));
         return;
     }
 
@@ -691,6 +661,7 @@ static void haptic_request(uint8_t effect)
         return;
     }
 
+    atomic_set(&haptic_pending_gap_ms, 0);
     atomic_set(&haptic_pending_effect, effect);
     (void)k_work_submit_to_queue(&haptic_workq, &haptic_play_work);
 }
@@ -862,6 +833,22 @@ void kobitokey_haptic_effect(uint8_t effect)
 }
 
 
+void kobitokey_haptic_double(uint8_t effect, uint16_t gap_ms)
+{
+    const int64_t now = k_uptime_get();
+
+    if (!haptic_ready || now - last_haptic_time < HAPTIC_COOLDOWN_MS) {
+        return;
+    }
+
+    last_haptic_time = now;
+
+    atomic_set(&haptic_pending_gap_ms, gap_ms);
+    atomic_set(&haptic_pending_effect, effect);
+    (void)k_work_submit_to_queue(&haptic_workq, &haptic_play_work);
+}
+
+
 void kobitokey_haptic_pulse_ms(uint32_t duration_ms)
 {
     /*
@@ -1020,7 +1007,6 @@ static int haptic_init(void)
 
     k_work_init(&haptic_play_work, haptic_play_work_handler);
     k_work_init_delayable(&haptic_setup_work, haptic_setup_work_handler);
-    k_work_init_delayable(&haptic_boot_step_work, haptic_boot_step_handler);
 
     haptic_initialized = true;
 

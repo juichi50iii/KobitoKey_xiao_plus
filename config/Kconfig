@@ -259,34 +259,42 @@ config KOBITOKEY_HAPTIC_EFFECT
     range 1 123
     depends on KOBITOKEY_HAPTIC
 
+config KOBITOKEY_HAPTIC_BOOT_EFFECT_LONG
+    int "Effect played first at boot"
+    default 50
+    range 1 123
+    depends on KOBITOKEY_HAPTIC
+    help
+      50 is Buzz 4 at 40% -- the "buu" in buu-bu-bu. Toned down in steps
+      from the original 47 (Buzz 1, 100%) through 49 (Buzz 3, 60%), which
+      still felt strong against the two short clicks. 51 (Buzz 5, 20%) is
+      the next step down if this is still too much.
+
 config KOBITOKEY_HAPTIC_BOOT_EFFECT_SHORT
-    int "Effect played for each of the boot buzzes"
+    int "Effect played for the two short boot buzzes"
     default 2
     range 1 123
     depends on KOBITOKEY_HAPTIC
     help
-      2 is Strong Click at 60%. Nothing else reads this option, so
-      changing it changes every beat of the boot pattern at once.
+      2 is Strong Click at 60% -- the two "bu"s in buu-bu-bu. Same story
+      as BOOT_EFFECT_LONG: toned down from the original 1 (100%).
 
-config KOBITOKEY_HAPTIC_BOOT_COUNT
-    int "Number of boot buzzes"
-    default 5
-    range 1 20
+config KOBITOKEY_HAPTIC_BOOT_GAP1_MS
+    int "Gap between the long buzz and the first short one, in milliseconds"
+    default 600
+    range 0 1270
     depends on KOBITOKEY_HAPTIC
     help
-      Each one is a separate trigger to the chip, spaced by
-      BOOT_GAP_MS, rather than one trigger holding several -- the
-      waveform sequencer only holds 8 slots per trigger, which a gapped
-      run of more than about 4 would exceed. Scheduling each buzz
-      separately keeps the count free of that ceiling.
+      Capped by the waveform sequencer's wait slot, which only encodes
+      up to 1270ms (0x80-0xFF, 10ms steps).
 
-config KOBITOKEY_HAPTIC_BOOT_GAP_MS
-    int "Gap between boot buzzes, in milliseconds"
+config KOBITOKEY_HAPTIC_BOOT_GAP2_MS
+    int "Gap between the two short buzzes, in milliseconds"
     default 150
-    range 0 2000
+    range 0 1270
     depends on KOBITOKEY_HAPTIC
     help
-      0 makes them run back to back.
+      Same 1270ms ceiling as BOOT_GAP1_MS, for the same reason.
 
 config KOBITOKEY_HAPTIC_USB_EFFECT
     int "Effect played when USB is connected"
@@ -507,6 +515,34 @@ config KOBITOKEY_FOLD_DEBOUNCE_MS
     range 1 1000
     depends on KOBITOKEY_FOLD_SENSE
 
+config KOBITOKEY_FOLD_CHARGE_LED
+    bool "Show the charge state on the RGB LED while closed on USB"
+    default y
+    depends on KOBITOKEY_FOLD_SENSE
+    help
+      XIAO の赤い充電LEDは充電IC(BQ25101)が直接点けていて、ファームからは
+      消せず、しかも見えにくい。そこで蓋を閉じてUSBに繋いでいる間だけ、
+      充電状態(CHG#=P0.17)をオートマウス等と同じRGB LEDに出し続ける。
+      System OFF中もGPIOの出力は保持されるので、点けたまま眠る。
+      充電が終わるとCHG#が変わり、それで一度起きて色を替えてまた眠る。
+      蓋が開いている間は何もしない(レイヤー表示を優先)。
+
+config KOBITOKEY_FOLD_CHARGE_COLOR
+    int "LED colour while charging (bit0 red, bit1 green, bit2 blue)"
+    default 3
+    range 1 7
+    depends on KOBITOKEY_FOLD_CHARGE_LED
+    help
+      3=yellow。
+
+config KOBITOKEY_FOLD_CHARGED_COLOR
+    int "LED colour once charging has finished (bit0 red, bit1 green, bit2 blue)"
+    default 2
+    range 1 7
+    depends on KOBITOKEY_FOLD_CHARGE_LED
+    help
+      2=green。
+
 config KOBITOKEY_VBUS_SENSE
     bool "KobitoKey VBUS detection support"
     default y
@@ -596,5 +632,369 @@ config KOBITOKEY_HEALTH_FEED_MS
     default 2000
     range 100 30000
     depends on KOBITOKEY_HEALTH
+
+endmenu
+
+menu "KobitoKey Gesture Pad"
+
+config KOBITOKEY_GESTUREPAD
+    bool "KobitoKey gesture pad (CY8CMBR3106S CapSense slider) support"
+    default y
+    depends on DT_HAS_KOBITOKEY_CY8CMBR3106S_ENABLED
+    select I2C
+    select GPIO
+    help
+      I2C driver for the CY8CMBR3106S-LQXI CapSense Express controller
+      behind the gesture pad's 1-axis slider (SLD10-14) and its HI
+      interrupt line.
+
+      This is currently a read-and-log skeleton: on every HI pulse it
+      reads SLIDER1_POSITION and BUTTON_STAT and logs them, buzzes on
+      every movement through its own effect (see
+      KOBITOKEY_GESTUREPAD_HAPTIC_EFFECT, independent of the trackball
+      scroll's), sends a provisional volume up/down over HID so the PC
+      side can be verified too (see KOBITOKEY_GESTUREPAD_VOLUME_NOTCH),
+      and exposes the last position through
+      kobitokey_gesturepad_position(). It does not yet configure
+      SENSOR_EN/SLIDER1_CFG/thresholds to activate the slider, or turn
+      position into the intended tap/hold/scroll gestures with a
+      long-press arm -- both need the real chip in hand to tune against,
+      not just the datasheet.
+
+config KOBITOKEY_GESTUREPAD_WORKQ_STACK_SIZE
+    int "Stack size for the gesture pad I2C thread"
+    default 2048
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      I2C の読み取りだけなら768で足りたが、1段ぶんの操作を仮想キー位置の
+      イベントとして出すと、右手(中央)ではキーマップ→キー入力→HID→送信の
+      処理がこのスレッドの中で走る。768のままでは溢れて、右手のパッドを
+      触ると固まって落ちた。
+
+config KOBITOKEY_GESTUREPAD_VOLUME_NOTCH
+    int "Slider counts per volume step"
+    default 8
+    range 1 254
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      Provisional only: lets you confirm the pad actually changes system
+      volume before the real long-press-to-arm gesture design is written.
+      SLIDER1_POSITION is an 8-bit count (0-254); this is how far it has
+      to move before one C_VOL_UP/C_VOL_DN is sent. Too small and every
+      twitch of a finger sends a step; too large and a full swipe barely
+      registers. Watch the logged position values while swiping and pick
+      a fraction of the range you see the pad actually use.
+
+config KOBITOKEY_GESTUREPAD_HOLD_MS
+    int "Hold time that re-locks the gesture pad, in milliseconds"
+    default 500
+    range 100 5000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      解除中の再ロックは「タップ→長押し」: 短くタップして、DOUBLE_TAP_MS 以内に
+      もう一度触れ、そのままこの時間(動かさずに)押さえる。解除は、この方法では
+      できない(長押しでゾーン確定→フリック)。
+
+config KOBITOKEY_GESTUREPAD_HOLD_TOLERANCE
+    int "Movement allowed while holding, in position counts"
+    default 3
+    range 0 254
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      実機の位置は 0-44 ほどで端から端まで(1カウントがおよそ1.1mm)。
+      押さえている間にこれ以上動かすと、長押しの数え直しになる。
+      3 でおよそ3.5mm。
+
+config KOBITOKEY_GESTUREPAD_LOCK_MS
+    int "Idle time before the gesture pad locks again, in milliseconds"
+    default 8000
+    range 500 60000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      最後にパッドへ触れる/動かしてからこれだけ経つと、再びロックする。
+      3000 だと、曲送りで少し曲を聴いてから次の操作をするには短かった。
+
+config KOBITOKEY_GESTUREPAD_KEY_HOLD_MS
+    int "How long a gesture step holds its key down, in milliseconds"
+    default 30
+    range 0 200
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      1段ぶんの操作で、キーを押してから離すまでの時間。0 だと同じ瞬間に
+      離す。メディア系のキーはそれでも通るが、スクロールと、Ctrl/Cmd 付きの
+      ショートカット(タブ・ウィンドウ切り替え)は動かなかった。
+
+config KOBITOKEY_GESTUREPAD_ARM_HAPTIC_EFFECT
+    int "Effect played once when the gesture pad arms"
+    default 2
+    range 1 123
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      2 は Strong Click 60%(1 の 100% は強すぎた)。1発だけ鳴らす。
+      再ロックは2連打(LOCK_HAPTIC_EFFECT)にして聞き分ける。
+
+config KOBITOKEY_GESTUREPAD_TICK_SPACING
+    int "Spacing of the haptic tick marks, in position counts"
+    default 5
+    range 1 254
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      実機の位置は 0-44 ほどで端から端まで(1カウントがおよそ1.1mm)。
+      データシート上の 0-254 ではない。この間隔ごとに区切ったマスを
+      またぐたびに1回振動する。5 でおよそ5.5mm、パッド全体で約9目盛り。
+      音量/輝度の1段の大きさ(VOLUME_NOTCH)とは独立している。
+
+config KOBITOKEY_GESTUREPAD_LOCK_HAPTIC_EFFECT
+    int "Effect played twice when a long press re-locks the pad"
+    default 2
+    range 1 123
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      2 は Strong Click 60%。解除の1発(ARM_HAPTIC_EFFECT)と同じ手応えを
+      「トゥットゥ」と2回鳴らして、解除と再ロックを聞き分けられるようにする。
+      キー入力や8秒の自動ロックでは鳴らさない。
+
+config KOBITOKEY_GESTUREPAD_LOCK_HAPTIC_GAP_MS
+    int "Gap between the two re-lock buzzes, in milliseconds"
+    default 120
+    range 10 1270
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      1回目が終わってから2回目が始まるまでの間(10ms 単位)。
+
+config KOBITOKEY_GESTUREPAD_POSITION_MAX
+    int "Largest position the pad reports"
+    default 44
+    range 1 254
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      実機の位置は 0-44 ほどで端から端まで(1カウントがおよそ1.1mm)。
+      データシート上の 0-254 ではない。0 からこの値までを、ゾーンの数で等分する。
+
+config KOBITOKEY_GESTUREPAD_ZONE_REVERSED
+    bool "Count the zones from the other end"
+    default n
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      左右の基板は向きが逆に付くので、位置が小さいほうを上にそろえる
+      ために、片方の手でだけ y にする(左手の .conf)。
+
+config KOBITOKEY_GESTUREPAD_FLICK_DISTANCE
+    int "Distance that fires a flick, in position counts"
+    default 10
+    range 2 44
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      実機の位置は 0-44 ほどで端から端まで(1カウントがおよそ1.1mm)。
+      触れ始めの位置から、これだけ動いた瞬間に1回出す。10 でおよそ11mm。
+
+config KOBITOKEY_GESTUREPAD_FLICK_HAPTIC_EFFECT
+    int "Effect played when a flick fires"
+    default 2
+    range 1 123
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      2 は Strong Click 60%。出した瞬間に1発だけ鳴らす。
+
+config KOBITOKEY_GESTUREPAD_TAP_MS
+    int "Longest touch counted as a tap, in milliseconds"
+    default 250
+    range 50 1000
+    depends on KOBITOKEY_GESTUREPAD
+
+config KOBITOKEY_GESTUREPAD_DOUBLE_TAP_MS
+    int "Longest gap between two taps of a double tap, in milliseconds"
+    default 400
+    range 100 2000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      解除中に、動かさずに短く触れて離すのを、この間隔以内に2回すると
+      ダブルタップ。そのモードの「タップ」のバインディングを出す。
+
+config KOBITOKEY_GESTUREPAD_BOOT_GUARD_MS
+    int "Time after boot during which the pad cannot be unlocked, in milliseconds"
+    default 2000
+    range 0 30000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      折り畳みを開くときに手がパッドに触れていることがあるので、起動から
+      この間は解除の長押しを数えない。起動時に触れていた指は、一度離すまで
+      数えない。
+
+config KOBITOKEY_GESTUREPAD_BOOT_RECAL
+    bool "Recalibrate the chip once after the boot guard if nothing touches it"
+    default y
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      起動の瞬間に触れていると、チップがその状態を「触れていない」基準として
+      覚えてしまう。BOOT_GUARD_MS 後に、触れていなければ CTRL_CMD(0x86)に
+      SW_RESET(0xFF)を書いてチップを初期化し直し、基準を取り直す。触れて
+      いるときは、同じ誤った基準を作り直すだけなので送らない。
+
+config KOBITOKEY_GESTUREPAD_RECAL_SETTLE_MS
+    int "Wait after the recalibration reset, in milliseconds"
+    default 200
+    range 10 2000
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_GESTUREPAD_BOOT_RECAL
+    help
+      リセットしてから、チップが基準を取り終えるまで待つ時間。この間も
+      解除は受け付けない。
+
+config KOBITOKEY_GESTUREPAD_INERTIA_THRESHOLD
+    int "Release speed that counts as a flip, in position counts per second"
+    default 150
+    range 10 2000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      実機の位置は 0-44 ほど。普通になぞると 50-100 カウント/秒ほど、
+      素早くはじくと 200 以上になる。これ以上の速さで離すとフリップ。
+
+config KOBITOKEY_GESTUREPAD_FLIP_STEPS
+    int "Steps added at once when the pad is flipped"
+    default 5
+    range 1 20
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      勢いを付けて離した瞬間に、その向きにこの段数を一気に足す。
+
+config KOBITOKEY_GESTUREPAD_SCROLL_COUNTS_PER_UNIT
+    int "Position counts of finger travel per scroll step"
+    default 3
+    range 1 50
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      mode = "scroll" のゾーンで、指がこのカウント数(1カウントは約1.1mm)動く
+      ごとに、ホイールを1つ動かす。大きいほど、スクロール量が少なくなる。
+      1 だと多すぎたので 3 にした。
+
+config KOBITOKEY_GESTUREPAD_SCROLL_HAPTIC_EFFECT
+    int "Effect played while scrolling in a scroll zone"
+    default 25
+    range 1 123
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      25 は Sharp Tick 2(80%)。パッドの目盛り(GESTUREPAD_HAPTIC_EFFECT)と
+      同じ強さ。指先だけでなく本体まで振動が伝わってほしいので、トラック
+      ボールのスクロール(26 = 60%)より一段強くしてある。ホイールを動かした
+      読み取りごとに1回鳴らす。
+
+config KOBITOKEY_GESTUREPAD_SCROLL_UNITS
+    int "Wheel units per scroll step"
+    default 1
+    range 1 100
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      ホイールを1つ動かすときに積む量。PC側のホイールの分解能の設定(スムーズ
+      スクロール)によって、1あたりの大きさが変わる。細かく調整したいときは
+      SCROLL_COUNTS_PER_UNIT のほうを使う。
+
+config KOBITOKEY_GESTUREPAD_SCROLL_INVERT
+    bool "Reverse the scroll direction"
+    default y
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      y のとき、パッドを上へなぞると画面が下へ動く(実機で、既定の向きが
+      逆だったので反転した)。n に戻すと、上へなぞると画面が上へ動く。
+
+config KOBITOKEY_GESTUREPAD_CHIP_SLIDER_THRESHOLD
+    int "Slider finger threshold saved into the chip (SLIDER1_THRESHOLD)"
+    default 128
+    range 1 255
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      チップの不揮発メモリに保存する、スライダーの指の判定のしきい値(工場
+      出荷は128)。実機で、指を離しても生の信号が上限(255)に張り付いて
+      「触れている」と判定され続けた(最初の「タップ→長押し」の空振りの有力な
+      原因)。180 に上げて試したが、効果は確認できなかったので、工場出荷の 128 に
+      戻した。起動のたびに現在値を見て、違うときだけ1回保存する。
+
+config KOBITOKEY_GESTUREPAD_ZONE_HOLD_MS
+    int "Time to rest on a zone before the flick that unlocks, in milliseconds"
+    default 400
+    range 100 3000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      解除は「長押し→フリック」でもできる。解除したいゾーンに触れて、この時間
+      動かさずに止まると、そのゾーンが決まる(止まった位置で決まり、合図の振動が
+      1発鳴る)。そのあとフリックすると解除される。
+
+config KOBITOKEY_GESTUREPAD_ZONE_HAPTIC_EFFECT
+    int "Effect played once when the zone is chosen (the swipe may start)"
+    default 2
+    range 1 123
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      長押しでゾーンが決まったときの合図。ここからスワイプしていい、と分かる
+      ように、1発鳴らす。2 = Strong Click 60%(初期値)。以前は 3 = 30% で、
+      解除のカチッより弱くして聞き分けていたが、2 に上げた。
+
+config KOBITOKEY_GESTUREPAD_FLICK_UNLOCK_SPEED
+    int "Flick speed that unlocks after a rest, in position counts per second"
+    default 120
+    range 20 1000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      解除は「長押しでゾーン決定 → フリック」。ゾーンが決まったあと、この速さ
+      以上ではじくと、はじいた瞬間に解除される。ふつうになぞる速さは 50-100 ほど。
+      解除の振動は、曲送りのフリックと同じ(FLICK_HAPTIC_EFFECT)。
+
+config KOBITOKEY_GESTUREPAD_FLICK_UNLOCK_MIN_COUNTS
+    int "Smallest travel of the unlocking flick, in position counts"
+    default 3
+    range 1 44
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      ゾーンを決めた位置から、これだけ動いていないと、フリックと数えない。
+      3 でおよそ3mm。
+
+config KOBITOKEY_GESTUREPAD_FLICK_UNLOCK_WINDOW_MS
+    int "Time allowed for the flick after a zone is chosen, in milliseconds"
+    default 2000
+    range 300 10000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      ゾーンが決まってから、この時間以内にはじかないと、決定を取り消して、
+      数え直す。
+
+config KOBITOKEY_GESTUREPAD_UNLOCK_SETTLE_MS
+    int "How long the finger must rest after an unlocking flick before pad input counts, in milliseconds"
+    default 150
+    range 50 1000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      フリックで解除したあとも、はじいた指はまだ動いている。そのまま数えると、
+      解除のフリックが音量・スクロールなどの操作になってしまうので、指が
+      この時間止まる(または離れる)まで、パッドの操作を無視する。
+      解除は、解除だけに専念させる。
+
+config KOBITOKEY_GESTUREPAD_TAP_HOLD_MS
+    int "Hold time that fires a choice in a tap zone, in milliseconds"
+    default 600
+    range 200 3000
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      mode = "tap" のゾーンで解除したあと、パッド全体が3つの選択肢に分かれる。
+      選びたい場所で、動かさずにこの時間押さえると、合図の振動が入って、その
+      場所の選択肢が入力され、ロックに戻る。
+
+config KOBITOKEY_GESTUREPAD_DEBUG_DIFF
+    bool "Log the chip's raw difference counts on every read"
+    default n
+    depends on KOBITOKEY_GESTUREPAD
+    help
+      診断用。読むたびに、チップの生の信号(差分カウント)を、0でない
+      センサーだけログに出す。ログ版のビルドでだけ y にする。
+
+config KOBITOKEY_GESTUREPAD_HAPTIC_EFFECT
+    int "Effect played when the finger crosses a tick mark"
+    default 25
+    range 1 123
+    depends on KOBITOKEY_GESTUREPAD && KOBITOKEY_HAPTIC
+    help
+      25 は Sharp Tick 2(80%)。トラックボールのスクロール(26 = Sharp
+      Tick 3、60%)より少し強めで、目盛りをまたぐたびに鳴る。解除・再ロックの1発
+      (2 = Strong Click 60%)とは違う軽さにしてある。トラックボール側とは
+      別の設定項目なので、独立に変えられる。See config/DRV2605L_EFFECTS.md
+      for the full effect list.
 
 endmenu
