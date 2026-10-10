@@ -17,6 +17,12 @@ void kobitokey_haptic_pulse_ms(uint32_t duration_ms);
  * スクロールの刻みと最短間隔だけは共有する。
  */
 void kobitokey_haptic_effect(uint8_t effect);
+
+/*
+ * 同じエフェクトを、gap_ms の間を空けて2回。再ロックの「トゥットゥ」用。
+ * 最短間隔は kobitokey_haptic_effect() と共有する。
+ */
+void kobitokey_haptic_double(uint8_t effect, uint16_t gap_ms);
 void kobitokey_haptic_usb_acknowledge(void);
 void kobitokey_haptic_shutdown(void);
 

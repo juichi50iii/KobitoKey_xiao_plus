@@ -1,0 +1,59 @@
+description: |
+  ジェスチャーパッドのゾーン一覧。子ノード(zone1, zone2, ...)の数が、そのまま
+  パッドの分割数になる。zone1 が一番上で、下へ順に並べる(最大5つ)。
+
+  gesture_left { zone1 { bindings = <&kp A &kp B &none>; }; zone2 { ... }; };
+
+compatible: "kobitokey,gesture-zones"
+
+child-binding:
+  description: パッドの1つのゾーン
+
+  properties:
+    bindings:
+      type: phandle-array
+      required: false
+      description: |
+        ちょうど3つ。順に「上げ」「下げ」「ダブルタップ」。使わないものは &none。
+        mode = "tap" のゾーンは、右手だけ、選択肢の数(1〜5個)で書ける。
+        mode = "scroll" のゾーンだけは、書かなくてよい(ダブルタップは何もしない)。
+    double-bindings:
+      type: phandle-array
+      required: false
+      specifier-space: binding
+      description: |
+        mode = "tap" / "cycle" のゾーンだけ。bindings と同じ数で書く。tap では、選択肢の
+        場所をダブルタップしたとき、cycle では、ダブルタップで反対側にしたときに入力する、もう一方(たとえば、Top のダブルタップで
+        Bottom)。使わないものは &none。
+    mode:
+      type: string
+      default: "step"
+      enum:
+        - "step"
+        - "flick"
+        - "step-flip"
+        - "scroll"
+        - "tap"
+        - "cycle"
+      description: |
+        step: なぞった量だけ、目盛りごとに連続して出す(音量など)。はじいても
+          何も足さない。
+        flick: 1回のスワイプで1回だけ出す(曲送りなど)。指を離すまで次は出ない。
+        step-flip: step と同じ動きに、はじいて離したとき一気に数段足す動きを
+          加える。はじきの有無だけが step との違い。
+        tap: このゾーンで解除すると、パッド全体が3つの選択肢に等分される(1つが
+          約17mm)。選びたい場所を長押しして合図の振動が入ったとき、その場所の
+          選択肢(bindings の1つ目〜3つ目が、上から順)を入力して、ロックに戻る。
+          承認の選択など、押して選ぶ用途。
+        cycle: 選択肢(bindings)を、フリックで順に切り替える(上へ=次、下へ=前。
+          一周する)。ダブルタップで、今の選択肢の反対側(double-bindings)と元を
+          行き来する。たとえば、Rhino のビューを Perspective → Top → Front → Right
+          と回し、ダブルタップで Top ↔ Bottom。右手だけ。入力しても、ロックには戻らない。
+        scroll: なぞった量だけ、マウスのホイールを直接動かす(キー指定の
+          bindings の「上げ」「下げ」は使わない。「ダブルタップ」は使える)。
+    led-color:
+      type: int
+      default: 0
+      description: |
+        解除中のLEDの色(bit0 赤, bit1 緑, bit2 青)。0 なら上から
+        緑・黄・赤・マゼンタ・青の順で自動に決まる。

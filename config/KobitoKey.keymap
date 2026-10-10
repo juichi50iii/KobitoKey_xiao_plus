@@ -6,6 +6,95 @@
 #include <dt-bindings/zmk/pointing.h>
 
 / {
+    /*
+     * ジェスチャーパッド。
+     *
+     * gesture_left / gesture_right の中に zone1, zone2, ... と書いた数が、
+     * そのままパッドの分割数になる(1〜5)。zone1 が一番上で、下へ順に並べる。
+     * 解除の長押しをした位置のゾーンが、解除後に使われる。
+     *
+     * 各ゾーンの書き方:
+     *
+     *   zoneN {
+     *       mode = "step";                          // 省略すると "step"
+     *       bindings = <上げ 下げ ダブルタップ>;   // ちょうど3つ。使わないものは &none
+     *       led-color = <3>;                        // 省略すると上から緑・黄・赤・マゼンタ・青
+     *   };
+     *
+     * mode = "scroll" のゾーンは、マウスのホイールを直接動かすので、bindings を
+     * 書かなくてよい(書けば、3つ目がダブルタップになる)。
+     *
+     * mode:
+     *   "step"       なぞった量だけ、目盛りごとに連続して出す(音量など)。
+     *                はじいても何も足さない
+     *   "flick"      1回のスワイプで1回だけ出す(曲送りなど)
+     *   "step-flip"  "step" と同じ動きに、はじいて離したとき一気に数段足す動きを
+     *                加える。はじきの有無だけが "step" との違い
+     *   "scroll"     なぞった量だけ、マウスのホイールを直接動かす
+     *   "tap"        このゾーンで解除すると、パッド全体が選択肢の数に分かれ、長押しして
+     *                振動が入ったとき、触れた場所の選択肢(bindings が上から順)を入力する
+     *                (ダブルタップで double-bindings)
+     *   "cycle"      選択肢をフリックで順に切り替える(上へ=次、下へ=前)。ダブルタップで
+     *                反対側(double-bindings)と元を行き来する
+     *
+     * 「上げ」は、パッドを物理的に上へなぞった向き(右手・左手とも同じ)。
+     * led-color は bit0 赤, bit1 緑, bit2 青(1=赤 2=緑 3=黄 4=青 5=マゼンタ 6=水色 7=白)。
+     */
+    gesture_left: gesture_left {
+        compatible = "kobitokey,gesture-zones";
+
+        zone1 {
+            /* 輝度 */
+            mode = "step";
+            bindings = <&kp C_BRI_UP &kp C_BRI_DN &none>;
+        };
+        zone2 {
+            /* 音量(ダブルタップでミュート) */
+            mode = "step";
+            bindings = <&kp C_VOL_UP &kp C_VOL_DN &kp C_MUTE>;
+        };
+    };
+
+    gesture_right: gesture_right {
+        compatible = "kobitokey,gesture-zones";
+
+        zone1 {
+            /*
+             * Rhino のビューポートのタブ(画面右下の Perspective / Top / Front / Right)の
+             * 切り替え。このゾーンで解除したあと、フリックで順に切り替える
+             * (上へ=次、下へ=前。Perspective → Top → Front → Right → Perspective)。
+             * ダブルタップは使わない(反対側のビューはタブにないため)。
+             *
+             * 送るのは Ctrl+Command+1〜4(Rhino 側の内部名は MacControlCommand1〜4)。
+             * Rhino 側に、このキーのショートカットを登録しておく必要がある
+             * (rhino_set_view_shortcuts.py を Rhino で1回実行する)。
+             *   1 Perspective / 2 Top / 3 Front / 4 Right
+             */
+            mode = "cycle";
+            bindings = <&kp LC(LG(N1)) &kp LC(LG(N2)) &kp LC(LG(N3)) &kp LC(LG(N4))>;
+        };
+        zone2 {
+            /*
+             * 選択肢(Claude Code デスクトップアプリの承認)。このゾーンで解除すると、
+             * パッド全体が3つに分かれ(上から 1, 2, 3)、選びたい場所を長押しして
+             * 振動が入ったとき、そのキーが入力される(入力しても、ロックは続く)。
+             *   上 1(拒否)
+             *   中 2(常に許可)
+             *   下 3(一度だけ許可)
+             * ⌘Enter / ⌘Shift+Enter は、画面によって意味が変わる・効かないので、番号キーにした。
+             */
+            mode = "tap";
+            bindings = <&kp N1 &kp N2 &kp N3>;
+        };
+        zone3 {
+            /* 曲送り(1回のスワイプで1曲、ダブルタップで再生/停止) */
+            mode = "flick";
+            bindings = <&kp C_NEXT &kp C_PREV &kp C_PP>;
+        };
+    };
+};
+
+/ {
     combos {
         compatible = "zmk,combos";
 
@@ -60,10 +149,10 @@
 
         default_layer {
             bindings = <
-&kp Q      &kp L  &kp U     &kp COMMA    &kp DOT    &kp F     &kp R        &kp Y      &kp J  &mt RALT P
+&kp Q      &kp L  &kp U     &kp COMMA    &kp DOT    &kp F     &kp R        &kp Y      &kp J  &lt 4 P
 &kp E      &kp I  &kp O     &kp A        &kp MINUS  &kp K     &kp T        &kp S      &kp N  &kp H
 &kp Z      &kp X  &kp C     &kp V        &kp SEMI   &kp G     &kp D        &kp M      &kp W  &kp B
-&kp LSHFT  &mo 5  &kp LCMD  &lt2_space_repeat 2 SPACE  &kp LCTRL  &kp BSPC  &lt 1 ENTER  &kp RSHFT  &mo 5  &lt 4 SLASH
+&kp LSHFT  &mo 5  &kp LCMD  &lt2_space_repeat 2 SPACE  &kp LCTRL  &kp BSPC  &lt 1 ENTER  &kp RSHFT  &mo 5  &mt RALT SLASH
             >;
         };
 

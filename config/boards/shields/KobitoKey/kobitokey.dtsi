@@ -50,6 +50,24 @@
         status = "okay";
         en-gpios = <&gpio1 7 GPIO_ACTIVE_HIGH>;
     };
+
+    /*
+     * ジェスチャーパッド：CY8CMBR3106S-LQXI を同じ i2c1 に相乗り。
+     * DRV2605L(0x5a)とはアドレスが衝突しない(デフォルト0x37)。
+     * 左右で配線は同一。
+     *
+     * HI = D15 = P0.10 (NFC2)。XIAO Plus の空きGPIOの中で唯一
+     * 他の用途に取られていないピン。&xiao_d のエイリアスは D17-19 で
+     * 実機とズレる既知の問題があるので(上のコメント参照)、ここでも
+     * 念のため生の gpio0 で指定する(haptic_drv の en-gpios と同じ流儀)。
+     * HI/BUZ はチップ側のプッシュプル出力なのでプルアップは無し。
+     */
+    gesturepad: cy8cmbr3106s@37 {
+        compatible = "kobitokey,cy8cmbr3106s";
+        reg = <0x37>;
+        status = "okay";
+        hi-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+    };
 };
 
 / {
@@ -71,16 +89,23 @@
                     <&xiao_d 7 GPIO_ACTIVE_HIGH> ; 
     };
 
-    /* 左右合体で 4行×10列（左0..4, 右5..9） */
+    /* 左右合体で 4行×10列（左0..4, 右5..9）。
+     *
+     * 5行目以降(位置40-54)は物理キーの無い仮想位置。左手のジェスチャーパッドが
+     * 「何番目のゾーンの何」を右手へ送るための番号で、キーマップのレイヤーには
+     * 書かない(右手が、キーマップの gesture_left ノードから引き当てて実行する)。
+     * 5ゾーン×3つ=15個ぶん。kscan は4行しか読まないので、行列の走査には影響しない。 */
     default_transform: keymap_transform0 {
         compatible = "zmk,matrix-transform";
-        rows = <4>;
+        rows = <6>;
         columns = <10>;
         map = <
             RC(0,0) RC(0,1) RC(0,2) RC(0,3) RC(0,4)   RC(0,5) RC(0,6) RC(0,7) RC(0,8) RC(0,9)
             RC(1,0) RC(1,1) RC(1,2) RC(1,3) RC(1,4)   RC(1,5) RC(1,6) RC(1,7) RC(1,8) RC(1,9)
             RC(2,0) RC(2,1) RC(2,2) RC(2,3) RC(2,4)   RC(2,5) RC(2,6) RC(2,7) RC(2,8) RC(2,9)
             RC(3,0) RC(3,1) RC(3,2) RC(3,3) RC(3,4)   RC(3,5) RC(3,6) RC(3,7) RC(3,8) RC(3,9)
+            RC(4,0) RC(4,1) RC(4,2) RC(4,3) RC(4,4) RC(4,5) RC(4,6) RC(4,7) RC(4,8) RC(4,9)
+            RC(5,0) RC(5,1) RC(5,2) RC(5,3) RC(5,4)
         >;
     };
 

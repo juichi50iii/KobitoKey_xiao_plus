@@ -1,0 +1,25 @@
+# Infineon/Cypress CY8CMBR3106S-LQXI CapSense Express controller, used for
+# the gesture pad's 1-axis 5-segment slider (SLD10-14).
+#
+# Not a Zephyr device class: Zephyr 3.5 has no CapSense/touch-slider driver
+# class, so kobitokey_gesturepad.c talks to the chip over I2C itself. This
+# node exists to keep the bus, the address and the HI pin in the devicetree
+# rather than as constants in the source.
+
+description: Infineon/Cypress CY8CMBR3106S-LQXI CapSense Express controller for the KobitoKey gesture pad slider
+
+compatible: "kobitokey,cy8cmbr3106s"
+
+include: i2c-device.yaml
+
+properties:
+  hi-gpios:
+    type: phandle-array
+    required: true
+    description: |
+      The CY8CMBR3106S HI/BUZ pin (host interrupt).
+
+      Active-low pulse asserted whenever a sensor state or slider position
+      changes (BUZ is unused here, so this pin is purely an interrupt
+      line). Push-pull output on the chip side, so no pull-up is wired on
+      our end.
