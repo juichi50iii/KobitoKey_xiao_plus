@@ -13,5 +13,17 @@ zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_VBUS_SENSE src/kobitokey_vbus.c)
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_VBUS_SENSE src/kobitokey_rgbled_hook.c)
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_FOLD_SENSE src/kobitokey_fold.c)
 zephyr_library_sources_ifdef(CONFIG_KOBITOKEY_HEALTH src/kobitokey_health.c)
+# ジェスチャーパッドだけは、モジュールのライブラリではなく app ターゲットに積む。
+#
+# ZMK のイベントは、どれかのリスナーがエラー(負の値)を返すとそこで打ち切られ、
+# 後ろのリスナーに届かない。リスナーの順番はリンクされた順で、ライブラリは
+# app の後ろに並ぶ。左手のジェスチャーが送ってくる位置は、キーマップに
+# キー指定が無いのでキーマップのリスナーがエラーを返し、ライブラリ側の
+# リスナー(gesturepad_left)まで届かなかった。app に積むと、ZMK 本体の
+# ソースより前に並ぶ(zmk-rgbled-widget も同じやり方で本体より前にいる)。
+if(CONFIG_KOBITOKEY_GESTUREPAD)
+  target_sources(app PRIVATE src/kobitokey_gesturepad.c)
+  target_include_directories(app PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include)
+endif()
 
 zephyr_include_directories(${APPLICATION_SOURCE_DIR}/include)

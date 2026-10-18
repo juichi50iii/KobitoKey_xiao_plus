@@ -63,6 +63,8 @@ static struct k_work_delayable fold_change_work;
 /* XIAO right-side wiring used for the System OFF SENSE configuration. */
 #define FOLD_FAST_PIN NRF_GPIO_PIN_MAP(0, 19)
 #define VBUS_FAST_PIN NRF_GPIO_PIN_MAP(0, 15)
+/* XIAO nRF52840 の充電IC(BQ25101)の CHG#。充電中だけLow(赤い基板上LEDと同じ線)。 */
+#define CHG_FAST_PIN NRF_GPIO_PIN_MAP(0, 17)
 
 BUILD_ASSERT(DT_GPIO_PIN(FOLD_NODE, gpios) == 19,
              "Update FOLD_FAST_PIN when the fold GPIO changes");
@@ -236,6 +238,30 @@ static void fold_early_leds_set(uint8_t color)
     }
 }
 
+#if defined(CONFIG_KOBITOKEY_FOLD_CHARGE_LED)
+/*
+ * CHG# はオープンドレインなので、充電していない間は浮く。内部プルアップで
+ * Highに落ち着かせてから読む。
+ */
+static bool fold_charging(void)
+{
+    nrf_gpio_cfg_input(CHG_FAST_PIN, NRF_GPIO_PIN_PULLUP);
+    k_busy_wait(50);
+
+    return nrf_gpio_pin_read(CHG_FAST_PIN) == 0;
+}
+
+/*
+ * 閉じてUSBに繋いでいる間の充電表示。点けた色は fold_power_off() が消さずに
+ * 眠るので、System OFF中も出続ける。
+ */
+static void fold_show_charge_state(void)
+{
+    fold_early_leds_set(fold_charging() ? CONFIG_KOBITOKEY_FOLD_CHARGE_COLOR
+                                        : CONFIG_KOBITOKEY_FOLD_CHARGED_COLOR);
+}
+#endif
+
 static int kobitokey_fold_early_usb_ack_start(void)
 {
     nrf_gpio_cfg_input(FOLD_FAST_PIN, NRF_GPIO_PIN_NOPULL);
@@ -251,6 +277,11 @@ static int kobitokey_fold_early_usb_ack_start(void)
 
     if ((fold_usb_state_get() & (FOLD_USB_FLAG_RUNTIME_CLOSE |
                                  FOLD_USB_FLAG_SESSION_NOTIFIED)) != 0U) {
+#if defined(CONFIG_KOBITOKEY_FOLD_CHARGE_LED)
+        /* リセットでLEDのGPIOは初期化される。CHG#の変化で起きた場合に
+         * 消えたまま眠り直さないよう、起きてすぐ点け直す。 */
+        fold_show_charge_state();
+#endif
         return 0; /* Same USB session as before; stay quiet. */
     }
 
@@ -398,6 +429,13 @@ static void fold_power_off(void)
     /* Never retain an active motor output across nRF52840 System OFF. */
     kobitokey_haptic_shutdown();
 
+#if defined(CONFIG_KOBITOKEY_FOLD_CHARGE_LED)
+    if (kobitokey_vbus_is_connected()) {
+        /* USB給電中は消さず、充電状態の色を点けたまま眠る。 */
+        fold_show_charge_state();
+    } else
+#endif
+    {
 #if DT_HAS_COMPAT_STATUS_OKAY(gpio_leds)
     /* Force all three XIAO RGB channels off before GPIO state is retained. */
     const struct device *const led_dev =
@@ -409,6 +447,7 @@ static void fold_power_off(void)
         led_off(led_dev, DT_NODE_CHILD_IDX(DT_ALIAS(led_blue)));
     }
 #endif
+    }
 
     /*
      * The lid is currently closed (HIGH). Arm a LOW-level wake source before
@@ -440,6 +479,16 @@ static void fold_power_off(void)
         NRF_GPIO_PIN_NOPULL,
         kobitokey_vbus_is_connected() ? NRF_GPIO_PIN_SENSE_LOW
                                       : NRF_GPIO_PIN_SENSE_HIGH);
+
+#if defined(CONFIG_KOBITOKEY_FOLD_CHARGE_LED)
+    if (kobitokey_vbus_is_connected()) {
+        /* 充電が終わる(CHG#が変わる)と一度起きて、色を替えて眠り直す。 */
+        nrf_gpio_cfg_sense_input(
+            CHG_FAST_PIN,
+            NRF_GPIO_PIN_PULLUP,
+            fold_charging() ? NRF_GPIO_PIN_SENSE_HIGH : NRF_GPIO_PIN_SENSE_LOW);
+    }
+#endif
 
     LOG_INF("Keyboard closed; entering System OFF");
 
